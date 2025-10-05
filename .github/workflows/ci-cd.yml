@@ -1,0 +1,80 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run linting
+      run: npm run lint
+    
+    - name: Run tests
+      run: npm test
+    
+    - name: Generate Prisma client
+      run: npx prisma generate
+    
+    - name: Check Prisma schema
+      run: npx prisma validate
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Generate Prisma client
+      run: npx prisma generate
+    
+    - name: Build Docker image
+      run: docker build -t sara2-network-app:${{ github.sha }} .
+    
+    - name: Test Docker image
+      run: |
+        docker run -d --name test-container -p 3002:3002 sara2-network-app:${{ github.sha }}
+        sleep 10
+        curl -f http://localhost:3002/health || exit 1
+        docker stop test-container
+        docker rm test-container
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production..."
+        # Add your deployment commands here
+        # For example: kubectl apply -f k8s/
+        # or: docker-compose -f docker-compose.prod.yml up -d

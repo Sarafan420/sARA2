@@ -1,0 +1,153 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  name            String
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  phone           String?
+  location        String?
+  company         String?
+  position        String?
+  experienceYears Int?     @map("experience_years")
+  bio             String?
+  avatarUrl       String?  @map("avatar_url")
+  status          String   @default("Открыт к предложениям")
+  skills          String?  // JSON array
+  interests       String?  // JSON array
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vacancies       Vacancy[]
+  sentConnections Connection[] @relation("UserSentConnections")
+  receivedConnections Connection[] @relation("UserReceivedConnections")
+  applications    Application[]
+  notifications   Notification[]
+  settings        UserSettings?
+  workExperience  WorkExperience[]
+
+  @@map("users")
+}
+
+model Vacancy {
+  id              Int      @id @default(autoincrement())
+  title           String
+  company         String
+  companyLogo     String?  @map("company_logo")
+  description     String?
+  requirements    String?
+  salaryMin       Int?     @map("salary_min")
+  salaryMax       Int?     @map("salary_max")
+  location        String?
+  type            String?  // Full-time, Part-time, Remote
+  experienceLevel String?  @map("experience_level") // Junior, Middle, Senior
+  skillsRequired  String?  @map("skills_required") // JSON array
+  userId          Int?     @map("user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user         User?         @relation(fields: [userId], references: [id])
+  applications Application[]
+
+  @@map("vacancies")
+}
+
+model Connection {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @map("user_id")
+  connectedUserId Int      @map("connected_user_id")
+  connectionType  String   @default("friend") @map("connection_type") // friend
+  status          String   @default("pending") // pending, accepted, rejected
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user         User @relation("UserSentConnections", fields: [userId], references: [id])
+  connectedUser User @relation("UserReceivedConnections", fields: [connectedUserId], references: [id])
+
+  @@unique([userId, connectedUserId])
+  @@map("connections")
+}
+
+model Application {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  vacancyId  Int      @map("vacancy_id")
+  coverLetter String?  @map("cover_letter")
+  status      String   @default("pending") // pending, reviewed, accepted, rejected
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id])
+  vacancy Vacancy @relation(fields: [vacancyId], references: [id])
+
+  @@unique([userId, vacancyId])
+  @@map("applications")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  title     String
+  message   String
+  type      String   @default("info") // info, success, warning, error
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model UserSettings {
+  id                 Int      @id @default(autoincrement())
+  userId             Int      @unique @map("user_id")
+  emailNotifications Boolean  @default(true) @map("email_notifications")
+  pushNotifications  Boolean  @default(true) @map("push_notifications")
+  profileVisibility String   @default("public") @map("profile_visibility") // public, private, connections_only
+  jobAlerts          Boolean  @default(true) @map("job_alerts")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_settings")
+}
+
+model SchemaMigration {
+  version   String   @id
+  appliedAt DateTime @default(now()) @map("applied_at")
+
+  @@map("schema_migrations")
+}
+
+model WorkExperience {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  company     String   // Обязательное: название компании
+  position    String   // Обязательное: должность
+  startDate   DateTime @map("start_date") // Обязательное: дата начала работы
+  endDate     DateTime? @map("end_date") // Обязательное: дата окончания (null = текущая работа)
+  description String?  // Необязательное: обязанности
+  projectName String?  @map("project_name") // Необязательное: название проекта
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("work_experience")
+}

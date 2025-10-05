@@ -1,0 +1,140 @@
+/* Tailwind CSS base styles */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import the new global styles */
+@import './styles/globals.css';
+
+/* Веб-адаптация */
+@media (min-width: 768px) {
+  .mobile-only {
+    display: none;
+  }
+  
+  .app-container {
+    max-width: 1000px;
+    padding: 0 2rem;
+  }
+  
+  .web-container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  
+  .web-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+  
+  .web-sidebar {
+    position: sticky;
+    top: 2rem;
+    height: fit-content;
+  }
+  
+  /* Отступ для веб-навигации */
+  .web-content,
+  .force-web .min-h-screen,
+  .auto-mode .min-h-screen {
+    padding-top: 5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-container {
+    max-width: 1200px;
+  }
+  
+  .web-grid {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  
+  .web-wide {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+}
+
+/* Скрыть TabBar на больших экранах (только если веб-версия) */
+.tab-bar {
+  display: block;
+}
+
+/* Скрыть веб-навигацию на мобильных экранах */
+.web-nav {
+  display: none;
+}
+
+/* Принудительная мобильная версия */
+.force-mobile .web-nav {
+  display: none !important;
+}
+
+.force-mobile .tab-bar {
+  display: block !important;
+}
+
+/* Принудительная веб-версия */
+.force-web .web-nav {
+  display: block !important;
+}
+
+.force-web .tab-bar {
+  display: none !important;
+}
+
+/* Автоматический режим */
+@media (min-width: 768px) {
+  .auto-mode .tab-bar {
+    display: none;
+  }
+  
+  .auto-mode .web-nav {
+    display: block;
+  }
+}
+
+/* Веб-навигация */
+@media (min-width: 768px) {
+  .web-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 1rem 2rem;
+  }
+  
+  .web-nav-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .web-nav-links {
+    display: flex;
+    gap: 2rem;
+  }
+  
+  .web-nav-link {
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+  }
+  
+  .web-nav-link:hover {
+    background-color: #f3f4f6;
+  }
+  
+  .web-nav-link.active {
+    background-color: #7c3aed;
+    color: white;
+  }
+}
+
