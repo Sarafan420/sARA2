@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import Avatar from './ui/Avatar';
 import Button from './ui/Button';
 import { UserIcon, UserGroupIcon, EyeIcon } from '@heroicons/react/24/outline';
 
 const RecruiterInfo = ({ recruiterId, recruiterName, recruiterPosition, recruiterCompany }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [connectionInfo, setConnectionInfo] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -74,45 +76,19 @@ const RecruiterInfo = ({ recruiterId, recruiterName, recruiterPosition, recruite
         </div>
       </div>
 
-      {/* Connection status */}
-      {connectionInfo && (
-        <div className="space-y-2">
-          {connectionInfo.isDirectConnection ? (
-            <div className="flex items-center space-x-2 text-green-600">
-              <UserIcon className="w-4 h-4" />
-              <span className="text-sm font-medium">Ваш друг</span>
-            </div>
-          ) : connectionInfo.mutualConnections && connectionInfo.mutualConnections.length > 0 ? (
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2 text-blue-600">
-                <UserGroupIcon className="w-4 h-4" />
-                <span className="text-sm font-medium">
-                  Связаны через {connectionInfo.mutualConnections.length} общих {connectionInfo.mutualConnections.length === 1 ? 'друга' : 'друзей'}
-                </span>
-              </div>
-              
-              {/* Show mutual connections */}
-              <div className="space-y-1">
-                {connectionInfo.mutualConnections.map((mutual) => (
-                  <div key={mutual.id} className="flex items-center space-x-2 text-sm text-gray-600">
-                    <Avatar 
-                      fallback={mutual.name}
-                      size="xs" 
-                    />
-                    <span>{mutual.name}</span>
-                    {mutual.position && (
-                      <span className="text-gray-500">• {mutual.position}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center space-x-2 text-gray-500">
-              <UserIcon className="w-4 h-4" />
-              <span className="text-sm">Нет общих связей</span>
-            </div>
-          )}
+      {/* Владелец вакансии */}
+      {user && recruiterId === user.id && (
+        <div className="flex items-center space-x-2 text-indigo-600">
+          <UserIcon className="w-4 h-4" />
+          <span className="text-sm font-medium">Ваша вакансия</span>
+        </div>
+      )}
+
+      {/* Прямой друг */}
+      {(!user || recruiterId !== user.id) && connectionInfo && connectionInfo.isDirectConnection && (
+        <div className="flex items-center space-x-2 text-green-600">
+          <UserIcon className="w-4 h-4" />
+          <span className="text-sm font-medium">Ваш друг</span>
         </div>
       )}
 

@@ -41,25 +41,46 @@ model User {
 }
 
 model Vacancy {
-  id              Int      @id @default(autoincrement())
-  title           String
-  company         String
-  companyLogo     String?  @map("company_logo")
-  description     String?
-  requirements    String?
-  salaryMin       Int?     @map("salary_min")
-  salaryMax       Int?     @map("salary_max")
-  location        String?
-  type            String?  // Full-time, Part-time, Remote
-  experienceLevel String?  @map("experience_level") // Junior, Middle, Senior
-  skillsRequired  String?  @map("skills_required") // JSON array
-  userId          Int?     @map("user_id")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                    Int      @id @default(autoincrement())
+  title                 String
+  company               String
+  companyLogo           String?  @map("company_logo")
+  description           String?
+  requirements          String?
+  salaryMin             Int?     @map("salary_min")
+  salaryMax             Int?     @map("salary_max")
+  salaryCurrency        String?  @map("salary_currency") // RUB, USD, EUR
+  location              String?
+  type                  String?  // regular, freelance, internship, creative
+  experienceLevel       String?  @map("experience_level") // Junior, Middle, Senior
+  skillsRequired        String?  @map("skills_required") // JSON array
+  userId                Int?     @map("user_id")
+  
+  // Новые поля
+  vacancyTypeId         Int?     @map("vacancy_type_id")
+  workFormatId          Int?     @map("work_format_id")
+  workingStyleId        Int?     @map("working_style_id")
+  hoursPerWeek          Int?     @map("hours_per_week")
+  startDate             DateTime? @map("start_date")
+  endDate               DateTime? @map("end_date")
+  contactEmail          String?   @map("contact_email")
+  telegramUsername      String?   @map("telegram_username")
+  acquiredSkills        String?   @map("acquired_skills") // JSON array
+  
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   // Relations
-  user         User?         @relation(fields: [userId], references: [id])
-  applications Application[]
+  user                  User?                    @relation(fields: [userId], references: [id])
+  vacancyType           VacancyType?             @relation(fields: [vacancyTypeId], references: [id])
+  workFormat            WorkFormat?              @relation(fields: [workFormatId], references: [id])
+  workingStyle          WorkingStyle?            @relation(fields: [workingStyleId], references: [id])
+  applications          Application[]
+  vacancyFields         VacancyField[]
+  vacancySkills         VacancySkill[]
+  vacancyOffers         VacancyOffer[]
+  vacancyParticipants   VacancyParticipant[]
+  photos                VacancyPhoto[]
 
   @@map("vacancies")
 }
@@ -150,4 +171,169 @@ model WorkExperience {
   user User @relation(fields: [userId], references: [id])
 
   @@map("work_experience")
+}
+
+// Новые модели для расширенной функциональности вакансий
+
+model VacancyType {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vacancies Vacancy[]
+
+  @@map("vacancy_types")
+}
+
+model Field {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vacancyFields VacancyField[]
+
+  @@map("fields")
+}
+
+model Skill {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vacancySkills VacancySkill[]
+
+  @@map("skills")
+}
+
+model WorkFormat {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // Офис, Удаленно, Гибрид
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vacancies Vacancy[]
+
+  @@map("work_formats")
+}
+
+model WorkingStyle {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // Полный день, Неполный день, Фиксированные часы
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vacancies Vacancy[]
+
+  @@map("working_styles")
+}
+
+model Offer {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vacancyOffers VacancyOffer[]
+
+  @@map("offers")
+}
+
+model ParticipantReceive {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // Портфолио кейс, Нетворкинг, Рекомендация, Долгосрочное сотрудничество, Вознаграждение за участие
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  vacancyParticipants VacancyParticipant[]
+
+  @@map("participant_receives")
+}
+
+// Связующие таблицы для many-to-many отношений
+
+model VacancyField {
+  id        Int     @id @default(autoincrement())
+  vacancyId Int    @map("vacancy_id")
+  fieldId   Int    @map("field_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  vacancy Vacancy @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  field   Field   @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([vacancyId, fieldId])
+  @@map("vacancy_fields")
+}
+
+model VacancySkill {
+  id        Int     @id @default(autoincrement())
+  vacancyId Int    @map("vacancy_id")
+  skillId   Int    @map("skill_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  vacancy Vacancy @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  skill   Skill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([vacancyId, skillId])
+  @@map("vacancy_skills")
+}
+
+model VacancyOffer {
+  id        Int     @id @default(autoincrement())
+  vacancyId Int    @map("vacancy_id")
+  offerId   Int    @map("offer_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  vacancy Vacancy @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  offer   Offer   @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([vacancyId, offerId])
+  @@map("vacancy_offers")
+}
+
+model VacancyParticipant {
+  id                    Int     @id @default(autoincrement())
+  vacancyId             Int    @map("vacancy_id")
+  participantReceiveId  Int    @map("participant_receive_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  // Relations
+  vacancy            Vacancy           @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  participantReceive ParticipantReceive @relation(fields: [participantReceiveId], references: [id], onDelete: Cascade)
+
+  @@unique([vacancyId, participantReceiveId])
+  @@map("vacancy_participants")
+}
+
+model VacancyPhoto {
+  id        Int      @id @default(autoincrement())
+  vacancyId Int     @map("vacancy_id")
+  url       String
+  alt       String?
+  order     Int?    // Порядок отображения
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  vacancy Vacancy @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+
+  @@map("vacancy_photos")
 }

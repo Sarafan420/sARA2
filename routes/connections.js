@@ -5,6 +5,13 @@ const { authenticateToken } = require('../middleware/auth');
 const prisma = new PrismaClient();
 const router = express.Router();
 
+// Send connection request (alias for /send)
+router.post('/request', authenticateToken, async (req, res) => {
+  // Forward to the main send endpoint
+  req.url = '/send';
+  return router.handle(req, res);
+});
+
 // Send connection request
 router.post('/send', authenticateToken, async (req, res) => {
   try {
@@ -643,6 +650,141 @@ router.get('/path/:userId', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Unable to get connection path'
+    });
+  }
+});
+
+// Get friends of friends
+router.get('/friends-of-friends/:userId', authenticateToken, async (req, res) => {
+  try {
+    const currentUserId = parseInt(req.params.userId);
+    
+    if (isNaN(currentUserId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid user ID'
+      });
+    }
+
+    // Get direct friends of the current user
+    const directConnections = await prisma.connection.findMany({
+      where: {
+        OR: [
+          { userId: currentUserId, status: 'accepted' },
+          { connectedUserId: currentUserId, status: 'accepted' }
+        ]
+      },
+      include: {
+        user: {
+          select: { id: true }
+        },
+        connectedUser: {
+          select: { id: true }
+        }
+      }
+    });
+
+    // Get friend IDs (excluding the current user)
+    const friendIds = directConnections.map(conn => 
+      conn.userId === currentUserId ? conn.connectedUser.id : conn.user.id
+    );
+
+    if (friendIds.length === 0) {
+      return res.json({
+        success: true,
+        friendsOfFriends: []
+      });
+    }
+
+    // Get all connections of friends (second-degree connections)
+    const secondDegreeConnections = await prisma.connection.findMany({
+      where: {
+        OR: [
+          { userId: { in: friendIds }, status: 'accepted' },
+          { connectedUserId: { in: friendIds }, status: 'accepted' }
+        ]
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            company: true,
+            avatarUrl: true
+          }
+        },
+        connectedUser: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            company: true,
+            avatarUrl: true
+          }
+        }
+      }
+    });
+
+    // Group by friend of friend and find mutual connections
+    const friendsOfFriendsMap = new Map();
+
+    for (const conn of secondDegreeConnections) {
+      let friendOfFriendId, friendOfFriend;
+      
+      if (friendIds.includes(conn.userId)) {
+        friendOfFriendId = conn.connectedUser.id;
+        friendOfFriend = conn.connectedUser;
+      } else if (friendIds.includes(conn.connectedUserId)) {
+        friendOfFriendId = conn.userId;
+        friendOfFriend = conn.user;
+      }
+
+      // Skip if it's the current user or a direct friend
+      if (friendOfFriendId === currentUserId || friendIds.includes(friendOfFriendId)) {
+        continue;
+      }
+
+      if (!friendsOfFriendsMap.has(friendOfFriendId)) {
+        friendsOfFriendsMap.set(friendOfFriendId, {
+          id: friendOfFriend.id,
+          name: friendOfFriend.name,
+          position: friendOfFriend.position,
+          company: friendOfFriend.company,
+          avatarUrl: friendOfFriend.avatarUrl,
+          mutualConnections: []
+        });
+      }
+
+      // Find the mutual friend (the direct friend who connects us)
+      const mutualFriendId = friendIds.includes(conn.userId) ? conn.userId : conn.connectedUserId;
+      const mutualFriend = directConnections.find(dc => 
+        dc.userId === mutualFriendId || dc.connectedUserId === mutualFriendId
+      );
+
+      if (mutualFriend) {
+        const mutualFriendData = mutualFriend.userId === mutualFriendId ? 
+          await prisma.user.findUnique({ where: { id: mutualFriendId }, select: { id: true, name: true, position: true } }) :
+          await prisma.user.findUnique({ where: { id: mutualFriend.connectedUserId }, select: { id: true, name: true, position: true } });
+
+        if (mutualFriendData && !friendsOfFriendsMap.get(friendOfFriendId).mutualConnections.find(mc => mc.id === mutualFriendData.id)) {
+          friendsOfFriendsMap.get(friendOfFriendId).mutualConnections.push(mutualFriendData);
+        }
+      }
+    }
+
+    const friendsOfFriends = Array.from(friendsOfFriendsMap.values());
+
+    res.json({
+      success: true,
+      friendsOfFriends
+    });
+
+  } catch (error) {
+    console.error('Get friends of friends error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Unable to get friends of friends'
     });
   }
 });

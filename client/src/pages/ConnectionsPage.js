@@ -1,11 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../components/layout/Layout';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Avatar from '../components/ui/Avatar';
 import FriendsList from '../components/FriendsList';
+import Spinner from '../components/ui/Spinner';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   UsersIcon,
@@ -18,15 +20,17 @@ import {
   CubeIcon,
   BriefcaseIcon,
   HeartIcon,
-  UserGroupIcon
+  UserGroupIcon,
+  UserPlusIcon
 } from '@heroicons/react/24/outline';
 import { mockUsers, mockConnections } from '../data/mockData';
-import ConnectionsSpiderChart from '../components/visualizations/ConnectionsSpiderChart';
-import ConnectionsSunburst from '../components/visualizations/ConnectionsSunburst';
 
 const ConnectionsPage = () => {
   const [activeTab, setActiveTab] = useState('friends');
+  const [friendsOfFriends, setFriendsOfFriends] = useState([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
   const { user: currentUser } = useAuth();
+  const navigate = useNavigate();
 
   // Обработка данных для графиков
   const connectionsData = useMemo(() => {
@@ -85,8 +89,66 @@ const ConnectionsPage = () => {
     };
   }, []);
 
+  // Функция для получения друзей друзей
+  const fetchFriendsOfFriends = async () => {
+    if (!currentUser) return;
+    
+    setLoadingConnections(true);
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(`http://localhost:5000/api/connections/friends-of-friends/${currentUser.id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setFriendsOfFriends(data.friendsOfFriends || []);
+      } else {
+        console.error('Failed to fetch friends of friends');
+      }
+    } catch (error) {
+      console.error('Error fetching friends of friends:', error);
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  // Функция для отправки запроса в друзья
+  const sendFriendRequest = async (userId) => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch('http://localhost:5000/api/connections/request', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId })
+      });
+
+      if (response.ok) {
+        // Обновляем список друзей друзей
+        fetchFriendsOfFriends();
+      } else {
+        console.error('Failed to send friend request');
+      }
+    } catch (error) {
+      console.error('Error sending friend request:', error);
+    }
+  };
+
+  // Загружаем друзей друзей при переключении на вкладку
+  useEffect(() => {
+    if (activeTab === 'my-connections' && currentUser) {
+      fetchFriendsOfFriends();
+    }
+  }, [activeTab, currentUser]);
+
   const tabs = [
     { id: 'friends', label: 'Друзья', icon: UserGroupIcon },
+    { id: 'my-connections', label: 'Мои связи', icon: LinkIcon },
     { id: 'overview', label: 'Обзор', icon: ChartBarIcon },
     { id: 'analytics', label: 'Аналитика', icon: FunnelIcon }
   ];
@@ -177,6 +239,121 @@ const ConnectionsPage = () => {
             </div>
           )}
 
+          {activeTab === 'my-connections' && currentUser && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">Мои связи</h2>
+                  <p className="text-gray-600">Друзья ваших друзей - расширьте свою сеть</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  icon={ArrowPathIcon}
+                  onClick={fetchFriendsOfFriends}
+                  disabled={loadingConnections}
+                >
+                  Обновить
+                </Button>
+              </div>
+
+              {loadingConnections ? (
+                <div className="flex justify-center py-12">
+                  <Spinner size="lg" />
+                </div>
+              ) : friendsOfFriends.length === 0 ? (
+                <Card padding="lg">
+                  <div className="text-center py-12">
+                    <LinkIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Нет доступных связей</h3>
+                    <p className="text-gray-600">Добавьте друзей, чтобы увидеть их друзей здесь</p>
+                  </div>
+                </Card>
+              ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {friendsOfFriends.map((connection) => (
+                    <Card key={connection.id} padding="lg" className="hover:shadow-lg transition-shadow">
+                      <div className="flex items-start space-x-4">
+                        <div
+                          className="cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => navigate(`/profile/${connection.id}`)}
+                        >
+                          <Avatar
+                            fallback={connection.name}
+                            size="lg"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3
+                              className="text-lg font-semibold text-gray-900 cursor-pointer hover:text-indigo-600 transition-colors truncate"
+                              onClick={() => navigate(`/profile/${connection.id}`)}
+                            >
+                              {connection.name}
+                            </h3>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-1 truncate">
+                            {connection.position}
+                          </p>
+                          {connection.company && (
+                            <p className="text-sm text-gray-500 mb-3 truncate">
+                              {connection.company}
+                            </p>
+                          )}
+                          
+                          {/* Показываем общих друзей */}
+                          {connection.mutualConnections && connection.mutualConnections.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs text-gray-500 mb-2">
+                                Общие друзья ({connection.mutualConnections.length}):
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {connection.mutualConnections.slice(0, 3).map((mutual) => (
+                                  <span
+                                    key={mutual.id}
+                                    className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors"
+                                    onClick={() => navigate(`/profile/${mutual.id}`)}
+                                  >
+                                    {mutual.name}
+                                  </span>
+                                ))}
+                                {connection.mutualConnections.length > 3 && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-700">
+                                    +{connection.mutualConnections.length - 3}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex space-x-2">
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              className="flex-1"
+                              icon={UserPlusIcon}
+                              onClick={() => sendFriendRequest(connection.id)}
+                            >
+                              Добавить
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1"
+                              icon={EyeIcon}
+                              onClick={() => navigate(`/profile/${connection.id}`)}
+                            >
+                              Профиль
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'overview' && (
             <div className="grid lg:grid-cols-2 gap-8">
               {/* Spider Chart - Навыки */}
@@ -184,7 +361,13 @@ const ConnectionsPage = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
                   Распределение навыков в сети
                 </h3>
-                <ConnectionsSpiderChart data={connectionsData.skills} />
+                <div className="h-64 flex items-center justify-center text-gray-500">
+                  <div className="text-center">
+                    <ChartBarIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                    <p>График навыков</p>
+                    <p className="text-sm">(будет реализован позже)</p>
+                  </div>
+                </div>
               </Card>
 
               {/* Sunburst - Компании */}
@@ -192,7 +375,13 @@ const ConnectionsPage = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
                   Связи по компаниям
                 </h3>
-                <ConnectionsSunburst data={connectionsData.companies} />
+                <div className="h-64 flex items-center justify-center text-gray-500">
+                  <div className="text-center">
+                    <CubeIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                    <p>График компаний</p>
+                    <p className="text-sm">(будет реализован позже)</p>
+                  </div>
+                </div>
               </Card>
 
               {/* Recent Connections */}

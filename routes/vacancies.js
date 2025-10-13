@@ -6,7 +6,8 @@ const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const prisma = new PrismaClient();
 const router = express.Router();
 
-// Get all vacancies
+
+// Get all vacancies (only from friends and friends of friends if authenticated)
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const { 
@@ -24,6 +25,65 @@ router.get('/', optionalAuth, async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
+    
+    // Если пользователь авторизован, показываем только вакансии от друзей и друзей друзей
+    if (req.user) {
+      // Получаем ID друзей пользователя
+      const directConnections = await prisma.connection.findMany({
+        where: {
+          OR: [
+            { userId: req.user.id, status: 'accepted' },
+            { connectedUserId: req.user.id, status: 'accepted' }
+          ]
+        }
+      });
+
+      const friendIds = directConnections.map(conn => 
+        conn.userId === req.user.id ? conn.connectedUserId : conn.userId
+      );
+
+      // Получаем ID друзей друзей
+      const secondDegreeConnections = await prisma.connection.findMany({
+        where: {
+          OR: [
+            { userId: { in: friendIds }, status: 'accepted' },
+            { connectedUserId: { in: friendIds }, status: 'accepted' }
+          ]
+        }
+      });
+
+      const friendsOfFriendsIds = new Set();
+      secondDegreeConnections.forEach(conn => {
+        if (friendIds.includes(conn.userId)) {
+          friendsOfFriendsIds.add(conn.connectedUserId);
+        } else if (friendIds.includes(conn.connectedUserId)) {
+          friendsOfFriendsIds.add(conn.userId);
+        }
+      });
+
+      // Исключаем самого пользователя и его прямых друзей
+      friendIds.forEach(id => friendsOfFriendsIds.delete(id));
+      friendsOfFriendsIds.delete(req.user.id);
+
+      // Объединяем ID друзей и друзей друзей
+      const allowedUserIds = [...friendIds, ...Array.from(friendsOfFriendsIds)];
+      
+      if (allowedUserIds.length > 0) {
+        where.userId = { in: allowedUserIds };
+      } else {
+        // Если у пользователя нет друзей, возвращаем пустой результат
+        return res.json({
+          success: true,
+          vacancies: [],
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: 0,
+            pages: 0
+          }
+        });
+      }
+    }
     
     if (search) {
       where.OR = [
@@ -68,6 +128,32 @@ router.get('/', optionalAuth, async (req, res) => {
               avatarUrl: true,
               company: true
             }
+          },
+          vacancyType: true,
+          workFormat: true,
+          workingStyle: true,
+          vacancyFields: {
+            include: {
+              field: true
+            }
+          },
+          vacancySkills: {
+            include: {
+              skill: true
+            }
+          },
+          vacancyOffers: {
+            include: {
+              offer: true
+            }
+          },
+          vacancyParticipants: {
+            include: {
+              participantReceive: true
+            }
+          },
+          photos: {
+            orderBy: { order: 'asc' }
           }
         },
         skip,
@@ -77,9 +163,88 @@ router.get('/', optionalAuth, async (req, res) => {
       prisma.vacancy.count({ where })
     ]);
 
-    const vacanciesWithParsedData = vacancies.map(vacancy => ({
-      ...vacancy,
-      skillsRequired: JSON.parse(vacancy.skillsRequired || '[]')
+    const vacanciesWithParsedData = await Promise.all(vacancies.map(async vacancy => {
+      // Построение connectionInfo для каждой вакансии
+      let connectionInfo = null;
+      
+      if (req.user && vacancy.userId !== req.user.id) {
+        // Проверяем, является ли рекрутер прямым другом
+        const directConnection = await prisma.connection.findFirst({
+          where: {
+            OR: [
+              { userId: req.user.id, connectedUserId: vacancy.userId },
+              { userId: vacancy.userId, connectedUserId: req.user.id }
+            ]
+          }
+        });
+
+        if (directConnection) {
+          connectionInfo = { isDirectConnection: true, mutualConnections: [] };
+        } else {
+          // Ищем общих друзей
+          const mutualConnections = await prisma.connection.findMany({
+            where: {
+              OR: [
+                { userId: req.user.id },
+                { connectedUserId: req.user.id }
+              ]
+            },
+            include: {
+              user: true,
+              connectedUser: true
+            }
+          });
+
+          const mutualFriends = [];
+          const addedUserIds = new Set();
+
+          for (const connection of mutualConnections) {
+            const mutualUserId = connection.userId === req.user.id ? connection.connectedUserId : connection.userId;
+            if (mutualUserId === vacancy.userId) continue;
+            if (addedUserIds.has(mutualUserId)) continue;
+
+            // Проверяем, является ли этот пользователь другом рекрутера
+            const mutualConnection = await prisma.connection.findFirst({
+              where: {
+                OR: [
+                  { userId: mutualUserId, connectedUserId: vacancy.userId },
+                  { userId: vacancy.userId, connectedUserId: mutualUserId }
+                ]
+              }
+            });
+
+            if (mutualConnection) {
+              const mutualUser = connection.userId === req.user.id ? connection.connectedUser : connection.user;
+              mutualFriends.push({
+                id: mutualUser.id,
+                name: mutualUser.name,
+                position: mutualUser.position,
+                company: mutualUser.company,
+                avatarUrl: mutualUser.avatarUrl
+              });
+              addedUserIds.add(mutualUserId);
+            }
+          }
+
+          if (mutualFriends.length > 0) {
+            connectionInfo = { isDirectConnection: false, mutualConnections: mutualFriends.slice(0, 3) };
+          }
+        }
+      }
+
+      const result = {
+        ...vacancy,
+        skillsRequired: JSON.parse(vacancy.skillsRequired || '[]'),
+        acquiredSkills: JSON.parse(vacancy.acquiredSkills || '[]'),
+        fields: vacancy.vacancyFields?.map(vf => vf.field) || [],
+        skills: vacancy.vacancySkills?.map(vs => vs.skill) || [],
+        offers: vacancy.vacancyOffers?.map(vo => vo.offer) || [],
+        participantReceives: vacancy.vacancyParticipants?.map(vp => vp.participantReceive) || [],
+        connectionInfo
+      };
+      
+      
+      return result;
     }));
 
     res.json({
@@ -124,6 +289,32 @@ router.get('/user/:userId', optionalAuth, async (req, res) => {
             avatarUrl: true,
             company: true
           }
+        },
+        vacancyType: true,
+        workFormat: true,
+        workingStyle: true,
+        vacancyFields: {
+          include: {
+            field: true
+          }
+        },
+        vacancySkills: {
+          include: {
+            skill: true
+          }
+        },
+        vacancyOffers: {
+          include: {
+            offer: true
+          }
+        },
+        vacancyParticipants: {
+          include: {
+            participantReceive: true
+          }
+        },
+        photos: {
+          orderBy: { order: 'asc' }
         }
       },
       orderBy: { createdAt: 'desc' }
@@ -133,7 +324,12 @@ router.get('/user/:userId', optionalAuth, async (req, res) => {
       success: true,
       vacancies: vacancies.map(vacancy => ({
         ...vacancy,
-        skillsRequired: JSON.parse(vacancy.skillsRequired || '[]')
+        skillsRequired: JSON.parse(vacancy.skillsRequired || '[]'),
+        acquiredSkills: JSON.parse(vacancy.acquiredSkills || '[]'),
+        fields: vacancy.vacancyFields?.map(vf => vf.field) || [],
+        skills: vacancy.vacancySkills?.map(vs => vs.skill) || [],
+        offers: vacancy.vacancyOffers?.map(vo => vo.offer) || [],
+        participantReceives: vacancy.vacancyParticipants?.map(vp => vp.participantReceive) || []
       }))
     });
 
@@ -172,6 +368,32 @@ router.get('/:id', optionalAuth, async (req, res) => {
             position: true
           }
         },
+        vacancyType: true,
+        workFormat: true,
+        workingStyle: true,
+        vacancyFields: {
+          include: {
+            field: true
+          }
+        },
+        vacancySkills: {
+          include: {
+            skill: true
+          }
+        },
+        vacancyOffers: {
+          include: {
+            offer: true
+          }
+        },
+        vacancyParticipants: {
+          include: {
+            participantReceive: true
+          }
+        },
+        photos: {
+          orderBy: { order: 'asc' }
+        },
         applications: {
           include: {
             user: {
@@ -195,11 +417,81 @@ router.get('/:id', optionalAuth, async (req, res) => {
       });
     }
 
+    // Построение connectionInfo: прямой друг или через общих друзей
+    let connectionInfo = null;
+    if (req.user && vacancy.userId !== req.user.id) {
+      // Получаем прямых друзей текущего пользователя
+      const directConnections = await prisma.connection.findMany({
+        where: {
+          OR: [
+            { userId: req.user.id, status: 'accepted' },
+            { connectedUserId: req.user.id, status: 'accepted' }
+          ]
+        }
+      });
+
+      const friendIds = directConnections.map(conn => 
+        conn.userId === req.user.id ? conn.connectedUserId : conn.userId
+      );
+
+      const isDirectConnection = friendIds.includes(vacancy.userId);
+
+      let mutualConnections = [];
+      if (!isDirectConnection && friendIds.length > 0) {
+        // Находим друзей пользователя, у которых есть связь с рекрутером
+        const mutualEdges = await prisma.connection.findMany({
+          where: {
+            status: 'accepted',
+            OR: [
+              { userId: { in: friendIds }, connectedUserId: vacancy.userId },
+              { connectedUserId: { in: friendIds }, userId: vacancy.userId }
+            ]
+          }
+        });
+
+        const mutualFriendIdsSet = new Set();
+        mutualEdges.forEach(edge => {
+          if (friendIds.includes(edge.userId) && edge.connectedUserId === vacancy.userId) {
+            mutualFriendIdsSet.add(edge.userId);
+          }
+          if (friendIds.includes(edge.connectedUserId) && edge.userId === vacancy.userId) {
+            mutualFriendIdsSet.add(edge.connectedUserId);
+          }
+        });
+
+        const mutualFriendIds = Array.from(mutualFriendIdsSet);
+        if (mutualFriendIds.length > 0) {
+          const mutualUsers = await prisma.user.findMany({
+            where: { id: { in: mutualFriendIds } },
+            select: {
+              id: true,
+              name: true,
+              avatarUrl: true,
+              position: true,
+              company: true
+            }
+          });
+          mutualConnections = mutualUsers;
+        }
+      }
+
+      connectionInfo = {
+        isDirectConnection,
+        mutualConnections
+      };
+    }
+
     res.json({
       success: true,
       vacancy: {
         ...vacancy,
-        skillsRequired: JSON.parse(vacancy.skillsRequired || '[]')
+        skillsRequired: JSON.parse(vacancy.skillsRequired || '[]'),
+        acquiredSkills: JSON.parse(vacancy.acquiredSkills || '[]'),
+        fields: vacancy.vacancyFields?.map(vf => vf.field) || [],
+        skills: vacancy.vacancySkills?.map(vs => vs.skill) || [],
+        offers: vacancy.vacancyOffers?.map(vo => vo.offer) || [],
+        participantReceives: vacancy.vacancyParticipants?.map(vp => vp.participantReceive) || [],
+        connectionInfo
       }
     });
 
@@ -433,6 +725,41 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Unable to delete vacancy'
+    });
+  }
+});
+
+// Get reference data for vacancy creation
+router.get('/reference-data', async (req, res) => {
+  try {
+    const [vacancyTypes, fields, skills, workFormats, workingStyles, offers, participantReceives] = await Promise.all([
+      prisma.vacancyType.findMany({ orderBy: { name: 'asc' } }),
+      prisma.field.findMany({ orderBy: { name: 'asc' } }),
+      prisma.skill.findMany({ orderBy: { name: 'asc' } }),
+      prisma.workFormat.findMany({ orderBy: { name: 'asc' } }),
+      prisma.workingStyle.findMany({ orderBy: { name: 'asc' } }),
+      prisma.offer.findMany({ orderBy: { name: 'asc' } }),
+      prisma.participantReceive.findMany({ orderBy: { name: 'asc' } })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        vacancyTypes,
+        fields,
+        skills,
+        workFormats,
+        workingStyles,
+        offers,
+        participantReceives
+      }
+    });
+
+  } catch (error) {
+    console.error('Get reference data error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Unable to fetch reference data'
     });
   }
 });
