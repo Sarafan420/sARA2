@@ -23,10 +23,6 @@ router.get('/me', authenticateToken, async (req, res) => {
         bio: true,
         avatarUrl: true,
         status: true,
-        skills: true,
-        interests: true,
-        createdAt: true,
-        updatedAt: true,
         userSkills: {
           include: {
             skill: {
@@ -37,7 +33,10 @@ router.get('/me', authenticateToken, async (req, res) => {
               }
             }
           }
-        }
+        },
+        interests: true,
+        createdAt: true,
+        updatedAt: true
       }
     });
 
@@ -48,18 +47,11 @@ router.get('/me', authenticateToken, async (req, res) => {
       });
     }
 
-    // Преобразуем навыки из новой структуры (userSkills) или fallback на старое поле skills
-    const skills = user.userSkills && user.userSkills.length > 0
-      ? user.userSkills.map(us => us.skill.name)
-      : JSON.parse(user.skills || '[]');
-
-    const { userSkills, ...userWithoutSkills } = user;
-
     res.json({
       success: true,
       user: {
-        ...userWithoutSkills,
-        skills: skills,
+        ...user,
+        skills: user.userSkills.map(us => us.skill),
         interests: JSON.parse(user.interests || '[]')
       }
     });
@@ -114,10 +106,6 @@ router.get('/', optionalAuth, async (req, res) => {
           bio: true,
           avatarUrl: true,
           status: true,
-          skills: true,
-          interests: true,
-          experienceYears: true,
-          createdAt: true,
           userSkills: {
             include: {
               skill: {
@@ -128,7 +116,10 @@ router.get('/', optionalAuth, async (req, res) => {
                 }
               }
             }
-          }
+          },
+          interests: true,
+          experienceYears: true,
+          createdAt: true
         },
         skip,
         take: parseInt(limit),
@@ -137,20 +128,11 @@ router.get('/', optionalAuth, async (req, res) => {
       prisma.user.count({ where })
     ]);
 
-    const usersWithParsedData = users.map(user => {
-      // Преобразуем навыки из новой структуры (userSkills) или fallback на старое поле skills
-      const skills = user.userSkills && user.userSkills.length > 0
-        ? user.userSkills.map(us => us.skill.name)
-        : JSON.parse(user.skills || '[]');
-      
-      const { userSkills, ...userWithoutSkills } = user;
-      
-      return {
-        ...userWithoutSkills,
-        skills: skills,
-        interests: user.interests ? JSON.parse(user.interests) : []
-      };
-    });
+    const usersWithParsedData = users.map(user => ({
+      ...user,
+      skills: user.userSkills.map(us => us.skill),
+      interests: user.interests ? JSON.parse(user.interests) : []
+    }));
 
     res.json({
       success: true,
@@ -197,11 +179,6 @@ router.get('/:id', optionalAuth, async (req, res) => {
         bio: true,
         avatarUrl: true,
         status: true,
-        skills: true,
-        interests: true,
-        experienceYears: true,
-        createdAt: true,
-        updatedAt: true,
         userSkills: {
           include: {
             skill: {
@@ -212,7 +189,11 @@ router.get('/:id', optionalAuth, async (req, res) => {
               }
             }
           }
-        }
+        },
+        interests: true,
+        experienceYears: true,
+        createdAt: true,
+        updatedAt: true
       }
     });
 
@@ -223,47 +204,26 @@ router.get('/:id', optionalAuth, async (req, res) => {
       });
     }
 
-    // Get user's friendships count (with deduplication)
-    const friendships = await prisma.friendship.findMany({
+    // Get user's connections count
+    const connectionsCount = await prisma.connection.count({
       where: {
         OR: [
           { userId: userId, status: 'accepted' },
-          { friendId: userId, status: 'accepted' }
+          { connectedUserId: userId, status: 'accepted' }
         ]
-      },
-      select: {
-        userId: true,
-        friendId: true
       }
     });
-    
-    // Deduplicate friendships by friend ID
-    const friendIdsSet = new Set();
-    friendships.forEach(f => {
-      const friendId = f.userId === userId ? f.friendId : f.userId;
-      if (friendId !== userId) {
-        friendIdsSet.add(friendId);
-      }
-    });
-    const connectionsCount = friendIdsSet.size;
 
     // Get user's vacancies count
     const vacanciesCount = await prisma.vacancy.count({
       where: { userId: userId }
     });
 
-    // Преобразуем навыки из новой структуры (userSkills) или fallback на старое поле skills
-    const skills = user.userSkills && user.userSkills.length > 0
-      ? user.userSkills.map(us => us.skill.name)
-      : JSON.parse(user.skills || '[]');
-
-    const { userSkills, ...userWithoutSkills } = user;
-
     res.json({
       success: true,
       user: {
-        ...userWithoutSkills,
-        skills: skills,
+        ...user,
+        skills: user.userSkills.map(us => us.skill),
         interests: user.interests ? JSON.parse(user.interests) : [],
         connectionsCount,
         vacanciesCount
@@ -378,11 +338,11 @@ router.get('/:id/connections', optionalAuth, async (req, res) => {
       });
     }
 
-    const friendships = await prisma.friendship.findMany({
+    const connections = await prisma.connection.findMany({
       where: {
         OR: [
           { userId: userId, status: 'accepted' },
-          { friendId: userId, status: 'accepted' }
+          { connectedUserId: userId, status: 'accepted' }
         ]
       },
       include: {
@@ -395,7 +355,7 @@ router.get('/:id/connections', optionalAuth, async (req, res) => {
             avatarUrl: true
           }
         },
-        friend: {
+        connectedUser: {
           select: {
             id: true,
             name: true,
@@ -407,34 +367,23 @@ router.get('/:id/connections', optionalAuth, async (req, res) => {
       }
     });
 
-    // Transform friendships to show the friend
-    const friends = friendships.map(f => {
-      const friend = f.userId === userId ? f.friend : f.user;
+    // Transform connections to show the connected user
+    const friends = connections.map(conn => {
+      const friend = conn.userId === userId ? conn.connectedUser : conn.user;
       return {
         id: friend.id,
         name: friend.name,
         position: friend.position,
         company: friend.company,
         avatar: friend.avatarUrl,
-        connectedAt: f.createdAt
+        connectionType: conn.connectionType,
+        connectedAt: conn.createdAt
       };
     });
 
-    // Удаляем дубликаты на основе ID друга (на случай, если есть двунаправленные связи)
-    const uniqueFriendsMap = new Map();
-    friends.forEach(friend => {
-      // Если такого друга еще нет, или если текущая связь более новая, сохраняем её
-      if (!uniqueFriendsMap.has(friend.id) || 
-          new Date(friend.connectedAt) > new Date(uniqueFriendsMap.get(friend.id).connectedAt)) {
-        uniqueFriendsMap.set(friend.id, friend);
-      }
-    });
-
-    const uniqueFriends = Array.from(uniqueFriendsMap.values());
-
     res.json({
       success: true,
-      connections: uniqueFriends
+      connections: friends
     });
 
   } catch (error) {

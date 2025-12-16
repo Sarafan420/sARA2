@@ -15,6 +15,10 @@ const connectionRoutes = require('./routes/connections');
 const applicationRoutes = require('./routes/applications');
 const notificationRoutes = require('./routes/notifications');
 const workExperienceRoutes = require('./routes/workExperience');
+const logsRoutes = require('./routes/logs');
+const privacyRoutes = require('./routes/privacy');
+const settingsRoutes = require('./routes/settings');
+const userSkillsRoutes = require('./routes/userSkills');
 
 const app = express();
 const prisma = new PrismaClient();
@@ -60,6 +64,10 @@ app.use('/api/connections', connectionRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/work-experience', workExperienceRoutes);
+app.use('/api/logs', logsRoutes);
+app.use('/api/privacy', privacyRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/user-skills', userSkillsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -99,13 +107,13 @@ app.use('*', (req, res) => {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('Shutting down gracefully...');
+
   await prisma.$disconnect();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('Shutting down gracefully...');
+
   await prisma.$disconnect();
   process.exit(0);
 });
@@ -113,10 +121,7 @@ process.on('SIGTERM', async () => {
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Database: SQLite with Prisma`);
-  console.log(`🌐 API available at: http://localhost:${PORT}/api`);
-  console.log(`🔒 Environment: ${process.env.NODE_ENV || 'development'}`);
+  // Server started successfully
 });
 
 module.exports = app;

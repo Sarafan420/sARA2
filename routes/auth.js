@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const { PrismaClient } = require('@prisma/client');
+const Logger = require('../utils/logger');
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -102,6 +103,13 @@ router.post('/register', validateRegistration, async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
+    // Логируем регистрацию
+    await Logger.logUserAction(user.id, 'registration', {
+      email,
+      name,
+      timestamp: new Date().toISOString()
+    }, req);
+
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
@@ -114,7 +122,6 @@ router.post('/register', validateRegistration, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Registration error:', error);
     res.status(500).json({
       success: false,
       error: 'Registration failed',
@@ -160,6 +167,13 @@ router.post('/login', validateLogin, async (req, res) => {
     });
 
     if (!user) {
+      // Логируем неуспешную попытку входа
+      await Logger.logSecurityEvent(null, 'login_attempt', {
+        email,
+        reason: 'user_not_found',
+        timestamp: new Date().toISOString()
+      }, false, req);
+
       return res.status(401).json({
         success: false,
         error: 'Invalid credentials',
@@ -170,6 +184,13 @@ router.post('/login', validateLogin, async (req, res) => {
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.passwordHash);
     if (!isValidPassword) {
+      // Логируем неуспешную попытку входа
+      await Logger.logSecurityEvent(user.id, 'login_attempt', {
+        email,
+        reason: 'invalid_password',
+        timestamp: new Date().toISOString()
+      }, false, req);
+
       return res.status(401).json({
         success: false,
         error: 'Invalid credentials',
@@ -187,6 +208,17 @@ router.post('/login', validateLogin, async (req, res) => {
     // Remove password hash from response
     const { passwordHash, ...userWithoutPassword } = user;
 
+    // Логируем успешный вход
+    await Logger.logUserAction(user.id, 'login', {
+      email,
+      timestamp: new Date().toISOString()
+    }, req);
+
+    await Logger.logSecurityEvent(user.id, 'login_attempt', {
+      email,
+      timestamp: new Date().toISOString()
+    }, true, req);
+
     res.json({
       success: true,
       message: 'Login successful',
@@ -199,7 +231,6 @@ router.post('/login', validateLogin, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Login error:', error);
     res.status(500).json({
       success: false,
       error: 'Login failed',
@@ -260,7 +291,6 @@ router.get('/me', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get profile error:', error);
     res.status(500).json({
       success: false,
       error: 'Unable to get user profile'

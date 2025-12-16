@@ -23,17 +23,35 @@ export const AuthProvider = ({ children }) => {
       try {
         const token = localStorage.getItem('authToken');
         if (token) {
-          // Если есть токен, но нет данных пользователя, очищаем токен
-          // Пользователь должен войти заново для получения актуальных данных
-          localStorage.removeItem('authToken');
-          setUser(null);
-          setIsAuthenticated(false);
+          // Проверяем валидность токена, отправляя запрос на сервер
+          const response = await fetch('http://localhost:5000/api/users/me', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          if (response.ok) {
+            const userData = await response.json();
+            // Убеждаемся, что skills - это массив
+            const user = {
+              ...userData.user,
+              skills: Array.isArray(userData.user.skills) ? userData.user.skills : []
+            };
+            setUser(user);
+            setIsAuthenticated(true);
+          } else {
+            // Токен недействителен, очищаем его
+            localStorage.removeItem('authToken');
+            setUser(null);
+            setIsAuthenticated(false);
+          }
         } else {
           setUser(null);
           setIsAuthenticated(false);
         }
       } catch (error) {
         console.error('Auth check failed:', error);
+        localStorage.removeItem('authToken');
         setUser(null);
         setIsAuthenticated(false);
       } finally {
@@ -57,7 +75,11 @@ export const AuthProvider = ({ children }) => {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ error: 'Ошибка сервера' }));
+        return {
+          success: false,
+          error: errorData.message || errorData.error || 'Ошибка входа. Проверьте данные.'
+        };
       }
 
       const data = await response.json();
@@ -128,16 +150,10 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(true);
         return { success: true };
       } else {
-        throw new Error(data.error || 'Ошибка авторизации');
+        return { success: false, error: data.error || 'Ошибка авторизации' };
       }
     } catch (error) {
-      console.error('Ошибка авторизации:', error);
-      console.error('Детали ошибки:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || 'Ошибка соединения' };
     } finally {
       setLoading(false);
     }

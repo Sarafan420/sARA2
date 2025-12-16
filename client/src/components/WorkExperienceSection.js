@@ -49,7 +49,6 @@ const WorkExperienceSection = ({ userId, isOwnProfile = false }) => {
     }
   };
 
-
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">

@@ -45,7 +45,6 @@ const NotificationSettingsPage = () => {
   };
 
   const saveSettings = () => {
-    console.log('Saving settings:', settings);
     setHasChanges(false);
   };
 

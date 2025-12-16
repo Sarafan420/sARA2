@@ -9,7 +9,6 @@ const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Ошибка подключения к базе данных:', err.message);
   } else {
-    console.log('Подключение к SQLite базе данных установлено');
   }
 });
 
@@ -396,7 +395,6 @@ function closeDatabase() {
     if (err) {
       console.error('Ошибка при закрытии базы данных:', err.message);
     } else {
-      console.log('Подключение к базе данных закрыто');
     }
   });
 }

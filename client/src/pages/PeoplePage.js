@@ -5,6 +5,7 @@ import Layout from '../components/layout/Layout';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
+import Tag from '../components/ui/Tag';
 import Avatar from '../components/ui/Avatar';
 import Input from '../components/ui/Input';
 import { sortOptions } from '../data/filterData';
@@ -57,26 +58,53 @@ const PeoplePage = () => {
         const data = await response.json();
         
         if (data.success) {
-          setUsers(data.users);
+          // Убеждаемся, что skills - это массив для каждого пользователя
+          const usersWithSkills = data.users.map(user => ({
+            ...user,
+            skills: Array.isArray(user.skills) ? user.skills : [],
+            interests: Array.isArray(user.interests) ? user.interests : []
+          }));
+          
+          setUsers(usersWithSkills);
           
           // Извлекаем уникальные значения для фильтров
-          const skills = [...new Set(data.users.flatMap(user => user.skills))];
-          const interests = [...new Set(data.users.flatMap(user => user.interests))];
-          const positions = [...new Set(data.users.map(user => user.position).filter(Boolean))];
-          const companies = [...new Set(data.users.map(user => user.company).filter(Boolean))];
-          const locations = [...new Set(data.users.map(user => user.location).filter(Boolean))];
+          const skills = [...new Set(usersWithSkills.flatMap(user => user.skills || []))];
+          const interests = [...new Set(usersWithSkills.flatMap(user => user.interests || []))];
+          const positions = [...new Set(usersWithSkills.map(user => user.position).filter(Boolean))];
+          const companies = [...new Set(usersWithSkills.map(user => user.company).filter(Boolean))];
+          const locations = [...new Set(usersWithSkills.map(user => user.location).filter(Boolean))];
           
           setFilterOptions({
-            skills: skills.map(skill => ({ value: skill, label: skill, count: data.users.filter(u => u.skills.includes(skill)).length })),
-            interests: interests.map(interest => ({ value: interest, label: interest, count: data.users.filter(u => u.interests.includes(interest)).length })),
-            positions: positions.map(position => ({ value: position, label: position, count: data.users.filter(u => u.position === position).length })),
-            companies: companies.map(company => ({ value: company, label: company, count: data.users.filter(u => u.company === company).length })),
-            locations: locations.map(location => ({ value: location, label: location, count: data.users.filter(u => u.location === location).length })),
+            skills: skills.map(skill => ({ 
+              value: skill, 
+              label: skill, 
+              count: usersWithSkills.filter(u => Array.isArray(u.skills) && u.skills.includes(skill)).length 
+            })),
+            interests: interests.map(interest => ({ 
+              value: interest, 
+              label: interest, 
+              count: usersWithSkills.filter(u => Array.isArray(u.interests) && u.interests.includes(interest)).length 
+            })),
+            positions: positions.map(position => ({ 
+              value: position, 
+              label: position, 
+              count: usersWithSkills.filter(u => u.position === position).length 
+            })),
+            companies: companies.map(company => ({ 
+              value: company, 
+              label: company, 
+              count: usersWithSkills.filter(u => u.company === company).length 
+            })),
+            locations: locations.map(location => ({ 
+              value: location, 
+              label: location, 
+              count: usersWithSkills.filter(u => u.location === location).length 
+            })),
             experience: [
-              { value: '0-2', label: '0-2 года', count: data.users.filter(u => (u.experienceYears || 0) <= 2).length },
-              { value: '3-5', label: '3-5 лет', count: data.users.filter(u => (u.experienceYears || 0) >= 3 && (u.experienceYears || 0) <= 5).length },
-              { value: '6-10', label: '6-10 лет', count: data.users.filter(u => (u.experienceYears || 0) >= 6 && (u.experienceYears || 0) <= 10).length },
-              { value: '10+', label: '10+ лет', count: data.users.filter(u => (u.experienceYears || 0) > 10).length }
+              { value: '0-2', label: '0-2 года', count: usersWithSkills.filter(u => (u.experienceYears || 0) <= 2).length },
+              { value: '3-5', label: '3-5 лет', count: usersWithSkills.filter(u => (u.experienceYears || 0) >= 3 && (u.experienceYears || 0) <= 5).length },
+              { value: '6-10', label: '6-10 лет', count: usersWithSkills.filter(u => (u.experienceYears || 0) >= 6 && (u.experienceYears || 0) <= 10).length },
+              { value: '10+', label: '10+ лет', count: usersWithSkills.filter(u => (u.experienceYears || 0) > 10).length }
             ]
           });
         }
@@ -108,16 +136,18 @@ const PeoplePage = () => {
     
     // Фильтрация по навыкам
     if (selectedFilters.skills.length > 0) {
-      filtered = filtered.filter(user => 
-        selectedFilters.skills.some(skill => user.skills.includes(skill))
-      );
+      filtered = filtered.filter(user => {
+        const userSkills = Array.isArray(user.skills) ? user.skills : [];
+        return selectedFilters.skills.some(skill => userSkills.includes(skill));
+      });
     }
     
     // Фильтрация по интересам
     if (selectedFilters.interests.length > 0) {
-      filtered = filtered.filter(user => 
-        selectedFilters.interests.some(interest => user.interests.includes(interest))
-      );
+      filtered = filtered.filter(user => {
+        const userInterests = Array.isArray(user.interests) ? user.interests : [];
+        return selectedFilters.interests.some(interest => userInterests.includes(interest));
+      });
     }
     
     // Фильтрация по позициям
@@ -486,21 +516,27 @@ const PeoplePage = () => {
                       </div>
 
                       {/* Навыки */}
-                      <div className="flex flex-wrap justify-center gap-1">
+                      <div className="flex flex-wrap justify-center gap-1.5 min-h-[24px]">
                         {(() => {
                           const skills = Array.isArray(user.skills) ? user.skills : [];
-                          return skills.slice(0, 3).map((skill) => (
-                            <Badge key={skill} variant="primary" size="sm">
-                              {skill}
-                            </Badge>
-                          ));
-                        })()}
-                        {(() => {
-                          const skills = Array.isArray(user.skills) ? user.skills : [];
-                          return skills.length > 3 && (
-                            <Badge variant="default" size="sm">
-                              +{skills.length - 3}
-                            </Badge>
+                          if (skills.length === 0) {
+                            return (
+                              <span className="text-xs text-gray-400 italic">Навыки не указаны</span>
+                            );
+                          }
+                          return (
+                            <>
+                              {skills.slice(0, 3).map((skill, idx) => (
+                                <Tag key={`${skill}-${idx}`} variant="primary" size="sm">
+                                  {skill}
+                                </Tag>
+                              ))}
+                              {skills.length > 3 && (
+                                <Tag variant="default" size="sm">
+                                  +{skills.length - 3}
+                                </Tag>
+                              )}
+                            </>
                           );
                         })()}
                       </div>

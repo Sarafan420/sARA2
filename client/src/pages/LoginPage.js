@@ -77,7 +77,6 @@ const LoginPage = () => {
         setErrors({ general: result.error || 'Ошибка входа. Проверьте данные.' });
       }
     } catch (error) {
-      console.error('Ошибка входа:', error);
       setErrors({ general: 'Ошибка соединения. Попробуйте еще раз.' });
     } finally {
       setIsLoading(false);

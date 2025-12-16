@@ -1,10 +1,8 @@
 // Моковые данные для приложения
 
-
 const positions = ['Frontend Developer', 'Backend Developer', 'Full Stack Developer', 'UX/UI Designer',
                   'Product Manager', 'QA Engineer', 'DevOps Engineer', 'Data Scientist', 'Project Manager',
                   'Business Analyst', 'Marketing Manager', 'Team Lead', 'Technical Writer', 'Graphic Designer'];
-
 
 const skills = ['JavaScript', 'TypeScript', 'React', 'Vue.js', 'Angular', 'Node.js', 'Python', 'Java',
                'PHP', 'C#', 'HTML/CSS', 'PostgreSQL', 'MongoDB', 'Docker', 'AWS', 'Figma', 'Photoshop'];

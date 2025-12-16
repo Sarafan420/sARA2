@@ -23,88 +23,118 @@ model User {
   bio             String?
   avatarUrl       String?  @map("avatar_url")
   status          String   @default("Открыт к предложениям")
-  skills          String?  // JSON array
-  interests       String?  // JSON array
+  skills          String? // JSON array (deprecated, use userSkills relation)
+  interests       String? // JSON array
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   // Relations
-  vacancies       Vacancy[]
-  sentConnections Connection[] @relation("UserSentConnections")
-  receivedConnections Connection[] @relation("UserReceivedConnections")
-  applications    Application[]
-  notifications   Notification[]
-  settings        UserSettings?
-  workExperience  WorkExperience[]
+  vacancies                     Vacancy[]
+  sentFriendships               Friendship[]              @relation("UserSentFriendships")
+  receivedFriendships           Friendship[]              @relation("UserReceivedFriendships")
+  sentConnections               Connection[]              @relation("UserSentConnections")
+  receivedConnections           Connection[]              @relation("UserReceivedConnections")
+  mutualFriendConnections       Connection[]              @relation("MutualFriendConnections")
+  applications                  Application[]
+  notifications                 Notification[]
+  settings                      UserSettings?
+  workExperience                WorkExperience[]
+  userLogs                      UserLog[]
+  securityLogs                  SecurityLog[]
+  privacySettings               UserPrivacySettings?
+  friendPrivacySettings         FriendPrivacySettings[]   @relation("UserFriendPrivacySettings")
+  friendPrivacySettingsReceived FriendPrivacySettings[]   @relation("FriendPrivacySettings")
+  notificationSettings          UserNotificationSettings?
+  profileSettings               UserProfileSettings?
+  userSkills                    UserSkill[]
 
   @@map("users")
 }
 
 model Vacancy {
-  id                    Int      @id @default(autoincrement())
-  title                 String
-  company               String
-  companyLogo           String?  @map("company_logo")
-  description           String?
-  requirements          String?
-  salaryMin             Int?     @map("salary_min")
-  salaryMax             Int?     @map("salary_max")
-  salaryCurrency        String?  @map("salary_currency") // RUB, USD, EUR
-  location              String?
-  type                  String?  // regular, freelance, internship, creative
-  experienceLevel       String?  @map("experience_level") // Junior, Middle, Senior
-  skillsRequired        String?  @map("skills_required") // JSON array
-  userId                Int?     @map("user_id")
-  
+  id              Int     @id @default(autoincrement())
+  title           String
+  company         String
+  companyLogo     String? @map("company_logo")
+  description     String?
+  requirements    String?
+  salaryMin       Int?    @map("salary_min")
+  salaryMax       Int?    @map("salary_max")
+  salaryCurrency  String? @map("salary_currency") // RUB, USD, EUR
+  location        String?
+  type            String? // regular, freelance, internship, creative
+  experienceLevel String? @map("experience_level") // Junior, Middle, Senior
+  skillsRequired  String? @map("skills_required") // JSON array
+  userId          Int?    @map("user_id")
+
   // Новые поля
-  vacancyTypeId         Int?     @map("vacancy_type_id")
-  workFormatId          Int?     @map("work_format_id")
-  workingStyleId        Int?     @map("working_style_id")
-  hoursPerWeek          Int?     @map("hours_per_week")
-  startDate             DateTime? @map("start_date")
-  endDate               DateTime? @map("end_date")
-  contactEmail          String?   @map("contact_email")
-  telegramUsername      String?   @map("telegram_username")
-  acquiredSkills        String?   @map("acquired_skills") // JSON array
-  
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  vacancyTypeId    Int?      @map("vacancy_type_id")
+  workFormatId     Int?      @map("work_format_id")
+  workingStyleId   Int?      @map("working_style_id")
+  hoursPerWeek     Int?      @map("hours_per_week")
+  startDate        DateTime? @map("start_date")
+  endDate          DateTime? @map("end_date")
+  contactEmail     String?   @map("contact_email")
+  telegramUsername String?   @map("telegram_username")
+  acquiredSkills   String?   @map("acquired_skills") // JSON array
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  user                  User?                    @relation(fields: [userId], references: [id])
-  vacancyType           VacancyType?             @relation(fields: [vacancyTypeId], references: [id])
-  workFormat            WorkFormat?              @relation(fields: [workFormatId], references: [id])
-  workingStyle          WorkingStyle?            @relation(fields: [workingStyleId], references: [id])
-  applications          Application[]
-  vacancyFields         VacancyField[]
-  vacancySkills         VacancySkill[]
-  vacancyOffers         VacancyOffer[]
-  vacancyParticipants   VacancyParticipant[]
-  photos                VacancyPhoto[]
+  user                User?                @relation(fields: [userId], references: [id])
+  vacancyType         VacancyType?         @relation(fields: [vacancyTypeId], references: [id])
+  workFormat          WorkFormat?          @relation(fields: [workFormatId], references: [id])
+  workingStyle        WorkingStyle?        @relation(fields: [workingStyleId], references: [id])
+  applications        Application[]
+  vacancyFields       VacancyField[]
+  vacancySkills       VacancySkill[]
+  vacancyOffers       VacancyOffer[]
+  vacancyParticipants VacancyParticipant[]
+  photos              VacancyPhoto[]
 
   @@map("vacancies")
 }
 
+// Дружба (прямые связи между пользователями)
+model Friendship {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  friendId  Int      @map("friend_id")
+  status    String   @default("pending") // pending, accepted, rejected
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user   User @relation("UserSentFriendships", fields: [userId], references: [id])
+  friend User @relation("UserReceivedFriendships", fields: [friendId], references: [id])
+
+  @@unique([userId, friendId])
+  @@map("friendships")
+}
+
+// Связи второго уровня (друзья друзей)
 model Connection {
   id              Int      @id @default(autoincrement())
   userId          Int      @map("user_id")
   connectedUserId Int      @map("connected_user_id")
-  connectionType  String   @default("friend") @map("connection_type") // friend
-  status          String   @default("pending") // pending, accepted, rejected
+  mutualFriendId  Int      @map("mutual_friend_id") // Общий друг, через которого установлена связь
   createdAt       DateTime @default(now()) @map("created_at")
 
   // Relations
-  user         User @relation("UserSentConnections", fields: [userId], references: [id])
+  user          User @relation("UserSentConnections", fields: [userId], references: [id])
   connectedUser User @relation("UserReceivedConnections", fields: [connectedUserId], references: [id])
+  mutualFriend  User @relation("MutualFriendConnections", fields: [mutualFriendId], references: [id])
 
-  @@unique([userId, connectedUserId])
+  @@unique([userId, connectedUserId, mutualFriendId])
+  @@index([userId])
+  @@index([connectedUserId])
   @@map("connections")
 }
 
 model Application {
   id          Int      @id @default(autoincrement())
   userId      Int      @map("user_id")
-  vacancyId  Int      @map("vacancy_id")
+  vacancyId   Int      @map("vacancy_id")
   coverLetter String?  @map("cover_letter")
   status      String   @default("pending") // pending, reviewed, accepted, rejected
   createdAt   DateTime @default(now()) @map("created_at")
@@ -137,7 +167,7 @@ model UserSettings {
   userId             Int      @unique @map("user_id")
   emailNotifications Boolean  @default(true) @map("email_notifications")
   pushNotifications  Boolean  @default(true) @map("push_notifications")
-  profileVisibility String   @default("public") @map("profile_visibility") // public, private, connections_only
+  profileVisibility  String   @default("public") @map("profile_visibility") // public, private, connections_only
   jobAlerts          Boolean  @default(true) @map("job_alerts")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
@@ -156,16 +186,16 @@ model SchemaMigration {
 }
 
 model WorkExperience {
-  id          Int      @id @default(autoincrement())
-  userId      Int      @map("user_id")
-  company     String   // Обязательное: название компании
-  position    String   // Обязательное: должность
-  startDate   DateTime @map("start_date") // Обязательное: дата начала работы
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  company     String // Обязательное: название компании
+  position    String // Обязательное: должность
+  startDate   DateTime  @map("start_date") // Обязательное: дата начала работы
   endDate     DateTime? @map("end_date") // Обязательное: дата окончания (null = текущая работа)
-  description String?  // Необязательное: обязанности
-  projectName String?  @map("project_name") // Необязательное: название проекта
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  description String? // Необязательное: обязанности
+  projectName String?   @map("project_name") // Необязательное: название проекта
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   // Relations
   user User @relation(fields: [userId], references: [id])
@@ -210,6 +240,7 @@ model Skill {
 
   // Relations
   vacancySkills VacancySkill[]
+  userSkills    UserSkill[]
 
   @@map("skills")
 }
@@ -269,9 +300,9 @@ model ParticipantReceive {
 // Связующие таблицы для many-to-many отношений
 
 model VacancyField {
-  id        Int     @id @default(autoincrement())
-  vacancyId Int    @map("vacancy_id")
-  fieldId   Int    @map("field_id")
+  id        Int      @id @default(autoincrement())
+  vacancyId Int      @map("vacancy_id")
+  fieldId   Int      @map("field_id")
   createdAt DateTime @default(now()) @map("created_at")
 
   // Relations
@@ -283,9 +314,9 @@ model VacancyField {
 }
 
 model VacancySkill {
-  id        Int     @id @default(autoincrement())
-  vacancyId Int    @map("vacancy_id")
-  skillId   Int    @map("skill_id")
+  id        Int      @id @default(autoincrement())
+  vacancyId Int      @map("vacancy_id")
+  skillId   Int      @map("skill_id")
   createdAt DateTime @default(now()) @map("created_at")
 
   // Relations
@@ -297,9 +328,9 @@ model VacancySkill {
 }
 
 model VacancyOffer {
-  id        Int     @id @default(autoincrement())
-  vacancyId Int    @map("vacancy_id")
-  offerId   Int    @map("offer_id")
+  id        Int      @id @default(autoincrement())
+  vacancyId Int      @map("vacancy_id")
+  offerId   Int      @map("offer_id")
   createdAt DateTime @default(now()) @map("created_at")
 
   // Relations
@@ -311,13 +342,13 @@ model VacancyOffer {
 }
 
 model VacancyParticipant {
-  id                    Int     @id @default(autoincrement())
-  vacancyId             Int    @map("vacancy_id")
-  participantReceiveId  Int    @map("participant_receive_id")
-  createdAt             DateTime @default(now()) @map("created_at")
+  id                   Int      @id @default(autoincrement())
+  vacancyId            Int      @map("vacancy_id")
+  participantReceiveId Int      @map("participant_receive_id")
+  createdAt            DateTime @default(now()) @map("created_at")
 
   // Relations
-  vacancy            Vacancy           @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  vacancy            Vacancy            @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
   participantReceive ParticipantReceive @relation(fields: [participantReceiveId], references: [id], onDelete: Cascade)
 
   @@unique([vacancyId, participantReceiveId])
@@ -326,14 +357,169 @@ model VacancyParticipant {
 
 model VacancyPhoto {
   id        Int      @id @default(autoincrement())
-  vacancyId Int     @map("vacancy_id")
+  vacancyId Int      @map("vacancy_id")
   url       String
   alt       String?
-  order     Int?    // Порядок отображения
+  order     Int? // Порядок отображения
   createdAt DateTime @default(now()) @map("created_at")
 
   // Relations
   vacancy Vacancy @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
 
   @@map("vacancy_photos")
+}
+
+// Модели для системы логирования
+
+model UserLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  actionType String   @map("action_type") // login, logout, profile_update, vacancy_create, vacancy_hide, etc.
+  actionData String   @map("action_data") // JSON с деталями действия
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  sessionId  String?  @map("session_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_logs")
+}
+
+model SecurityLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?     @map("user_id") // null для неуспешных попыток входа
+  actionType String   @map("action_type") // login_attempt, password_change, suspicious_activity
+  actionData String   @map("action_data") // JSON с деталями
+  ipAddress  String   @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  success    Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("security_logs")
+}
+
+model SystemLog {
+  id        Int      @id @default(autoincrement())
+  level     String // info, warning, error, debug
+  message   String
+  context   String? // JSON с контекстом
+  service   String? // название сервиса/модуля
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("system_logs")
+}
+
+// Модели для системы приватности профиля
+
+model UserPrivacySettings {
+  id     Int @id @default(autoincrement())
+  userId Int @unique @map("user_id")
+
+  // Общие настройки приватности
+  profileVisibility  String  @default("public") @map("profile_visibility") // public, friends, private
+  showVacancies      Boolean @default(true) @map("show_vacancies")
+  showConnections    Boolean @default(true) @map("show_connections")
+  showWorkExperience Boolean @default(true) @map("show_work_experience")
+  showSkills         Boolean @default(true) @map("show_skills")
+  showInterests      Boolean @default(true) @map("show_interests")
+  showContactInfo    Boolean @default(true) @map("show_contact_info")
+
+  // Настройки для друзей
+  allowFriendsToSeeMyVacancies      Boolean @default(true) @map("allow_friends_to_see_my_vacancies")
+  allowFriendsToSeeFriendsVacancies Boolean @default(true) @map("allow_friends_to_see_friends_vacancies")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user                  User                    @relation(fields: [userId], references: [id])
+  friendPrivacySettings FriendPrivacySettings[]
+
+  @@map("user_privacy_settings")
+}
+
+model FriendPrivacySettings {
+  id       Int @id @default(autoincrement())
+  userId   Int @map("user_id")
+  friendId Int @map("friend_id")
+
+  // Настройки для конкретного друга
+  showMyVacancies      Boolean @default(true) @map("show_my_vacancies")
+  showFriendsVacancies Boolean @default(true) @map("show_friends_vacancies")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user            User                @relation("UserFriendPrivacySettings", fields: [userId], references: [id])
+  friend          User                @relation("FriendPrivacySettings", fields: [friendId], references: [id])
+  privacySettings UserPrivacySettings @relation(fields: [userId], references: [userId])
+
+  @@unique([userId, friendId])
+  @@map("friend_privacy_settings")
+}
+
+// Модели для настроек уведомлений
+
+model UserNotificationSettings {
+  id     Int @id @default(autoincrement())
+  userId Int @unique @map("user_id")
+
+  // Настройки уведомлений
+  emailNotifications Boolean @default(true) @map("email_notifications")
+  pushNotifications  Boolean @default(true) @map("push_notifications")
+  vacancyAlerts      Boolean @default(true) @map("vacancy_alerts")
+  connectionRequests Boolean @default(true) @map("connection_requests")
+  messages           Boolean @default(true) @map("messages")
+  weeklyDigest       Boolean @default(false) @map("weekly_digest")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_notification_settings")
+}
+
+// Модели для настроек профиля
+
+model UserProfileSettings {
+  id     Int @id @default(autoincrement())
+  userId Int @unique @map("user_id")
+
+  // Настройки профиля
+  hideFromEveryone        Boolean @default(false) @map("hide_from_everyone")
+  profileVisibility       String  @default("public") @map("profile_visibility") // public, friends, private
+  allowSearch             Boolean @default(true) @map("allow_search")
+  allowMessages           Boolean @default(true) @map("allow_messages")
+  allowConnectionRequests Boolean @default(true) @map("allow_connection_requests")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_profile_settings")
+}
+
+model UserSkill {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  skillId   Int      @map("skill_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+  @@map("user_skills")
 }

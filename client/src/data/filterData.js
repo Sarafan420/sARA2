@@ -187,11 +187,11 @@ export const sortOptions = {
   // Для вакансий
   vacancies: [
     { value: 'relevance', label: 'По релевантности' },
-    { value: 'newest', label: 'Сначала новые' },
-    { value: 'oldest', label: 'Сначала старые' },
-    { value: 'salary-high', label: 'Зарплата: по убыванию' },
-    { value: 'salary-low', label: 'Зарплата: по возрастанию' },
-    { value: 'company', label: 'По компании' }
+    { value: 'date', label: 'По дате' },
+    { value: 'salary', label: 'По зарплате' },
+    { value: 'company', label: 'По компании' },
+    { value: 'vacancyType', label: 'По типу вакансии' },
+    { value: 'skills', label: 'По навыкам' }
   ],
 
   // Для людей

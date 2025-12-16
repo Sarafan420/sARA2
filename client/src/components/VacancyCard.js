@@ -11,7 +11,8 @@ import {
   UserIcon,
   BriefcaseIcon,
   LightBulbIcon,
-  PaintBrushIcon
+  PaintBrushIcon,
+  EyeSlashIcon
 } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartIconSolid, BookmarkIcon as BookmarkIconSolid } from '@heroicons/react/24/solid';
 import { useNavigate } from 'react-router-dom';
@@ -25,9 +26,14 @@ const VacancyCard = ({
   isMyVacancy = false, 
   likedVacancies = new Set(), 
   savedVacancies = new Set(),
+  appliedVacancies = new Set(),
   onToggleLike,
   onToggleSave,
   onDelete,
+  onHideVacancy,
+  onShowResponses,
+  onApplyToVacancy,
+  isHidden = false,
   index = 0
 }) => {
   const navigate = useNavigate();
@@ -137,9 +143,9 @@ const VacancyCard = ({
                 </div>
               </div>
               
-              {/* Рекрутер */}
+              {/* Рекрутер с информацией о связи */}
               {vacancy.user && (
-                <div className="flex items-center space-x-2 text-sm text-gray-500">
+                <div className="flex items-center space-x-2 text-sm">
                   <Avatar 
                     fallback={vacancy.user.name}
                     size="xs" 
@@ -148,6 +154,23 @@ const VacancyCard = ({
                     {vacancy.user.name}
                   </span>
                   <span className="text-gray-500">• {vacancy.user.company || 'Рекрутер'}</span>
+                  
+                  {/* Индикатор типа связи */}
+                  {vacancy.connectionInfo && (
+                    <div className="flex items-center space-x-1 ml-2">
+                      {vacancy.connectionInfo.isDirectConnection ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                          <UserIcon className="h-3 w-3 mr-1" />
+                          Друг
+                        </span>
+                      ) : vacancy.connectionInfo.mutualConnections && vacancy.connectionInfo.mutualConnections.length > 0 ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                          <UserIcon className="h-3 w-3 mr-1" />
+                          Через {vacancy.connectionInfo.mutualConnections.length} {vacancy.connectionInfo.mutualConnections.length === 1 ? 'друга' : 'друзей'}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -240,15 +263,52 @@ const VacancyCard = ({
               )}
               <span>{savedVacancies.has(vacancy.id) ? 'В избранном' : 'В избранное'}</span>
             </button>
+
+            {onHideVacancy && !isMyVacancy && (
+              <button 
+                className="flex items-center space-x-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                onClick={(e) => handleActionClick(e, () => onHideVacancy(vacancy.id))}
+              >
+                <EyeSlashIcon className="h-4 w-4" />
+                <span>{isHidden ? 'Показать' : 'Скрыть'}</span>
+              </button>
+            )}
           </div>
           
           <Button
             variant="primary"
             size="sm"
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg flex items-center space-x-2"
+            className={`px-6 py-2 rounded-lg flex items-center space-x-2 ${
+              appliedVacancies.has(vacancy.id) 
+                ? 'bg-green-600 hover:bg-green-700 text-white' 
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isMyVacancy && onShowResponses) {
+                onShowResponses(vacancy.id);
+              } else if (appliedVacancies.has(vacancy.id)) {
+                // Если уже откликнулся, ничего не делаем
+                return;
+              } else if (onApplyToVacancy) {
+                onApplyToVacancy(vacancy.id);
+              } else {
+                // Обычное поведение для отклика
+                handleCardClick();
+              }
+            }}
           >
-            <span className="text-sm">🚀</span>
-            <span>Откликнуться</span>
+            <span className="text-sm">
+              {isMyVacancy ? '👥' : appliedVacancies.has(vacancy.id) ? '✅' : '🚀'}
+            </span>
+            <span>
+              {isMyVacancy 
+                ? 'Показать отклики' 
+                : appliedVacancies.has(vacancy.id) 
+                  ? 'Заявка отправлена!' 
+                  : 'Откликнуться'
+              }
+            </span>
           </Button>
         </div>
       </Card>

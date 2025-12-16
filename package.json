@@ -16,7 +16,12 @@
     "db:studio": "npx prisma studio",
     "test": "jest",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix"
+    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+    "check": "node check-project.js",
+    "check:clean": "node check-project.js --clean-temp",
+    "check:db": "node check-database.js",
+    "optimize:db": "node optimize-database.js",
+    "migrate:db": "node migrate-database-data.js"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

@@ -125,7 +125,7 @@ const ConnectionsPage = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ userId })
+        body: JSON.stringify({ connectedUserId: userId })
       });
 
       if (response.ok) {
@@ -192,8 +192,6 @@ const ConnectionsPage = () => {
               </Button>
             </div>
           </div>
-
-
 
           {/* Tabs */}
           <div className="border-b border-gray-200">
@@ -449,7 +447,6 @@ const ConnectionsPage = () => {
                   );
                 })}
               </div>
-
 
               <div className="grid lg:grid-cols-2 gap-8">
                 <Card padding="lg">

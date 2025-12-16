@@ -4,10 +4,7 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Starting database seeding...');
-
   // Clear existing data
-  console.log('🧹 Clearing existing data...');
   await prisma.application.deleteMany({});
   await prisma.vacancy.deleteMany({});
   await prisma.connection.deleteMany({});
@@ -29,12 +26,7 @@ async function main() {
   await prisma.workFormat.deleteMany({});
   await prisma.workingStyle.deleteMany({});
   await prisma.vacancyType.deleteMany({});
-
-  console.log('✅ Existing data cleared');
-
   // Create reference data
-  console.log('📚 Creating reference data...');
-
   // Vacancy Types
   const vacancyTypes = await Promise.all([
     prisma.vacancyType.create({
@@ -308,11 +300,7 @@ async function main() {
       }
     })
   ]);
-
-  console.log('✅ Reference data created');
-
   // Create users
-  console.log('👥 Creating users...');
   const hashedPassword = await bcrypt.hash('password123', 10);
 
   const users = await Promise.all([
@@ -710,11 +698,7 @@ async function main() {
       }
     })
   ]);
-
-  console.log('✅ Users created');
-
   // Create connections
-  console.log('🔗 Creating connections...');
   await prisma.connection.createMany({
     data: [
       // Основные связи между первыми 6 пользователями
@@ -795,11 +779,7 @@ async function main() {
       { userId: users[10].id, connectedUserId: users[5].id, status: 'accepted' }
     ]
   });
-
-  console.log('✅ Connections created');
-
   // Create work experience
-  console.log('💼 Creating work experience...');
   await prisma.workExperience.createMany({
     data: [
       {
@@ -836,11 +816,7 @@ async function main() {
       }
     ]
   });
-
-  console.log('✅ Work experience created');
-
   // Create vacancies
-  console.log('💼 Creating vacancies...');
   const vacancies = await Promise.all([
     // Основные вакансии от первых 6 пользователей
     prisma.vacancy.create({
@@ -1086,12 +1062,7 @@ async function main() {
       }
     })
   ]);
-
-  console.log('✅ Vacancies created');
-
   // Create vacancy relationships
-  console.log('🔗 Creating vacancy relationships...');
-  
   // Add fields to vacancies
   const itField = fields.find(f => f.name === 'IT и программирование');
   const designField = fields.find(f => f.name === 'Дизайн');
@@ -1184,11 +1155,7 @@ async function main() {
       ]
     });
   }
-
-  console.log('✅ Vacancy relationships created');
-
   // Create vacancy photos
-  console.log('📸 Creating vacancy photos...');
   await prisma.vacancyPhoto.createMany({
     data: [
       {
@@ -1253,11 +1220,7 @@ async function main() {
       }
     ]
   });
-
-  console.log('✅ Vacancy photos created');
-
   // Create user settings
-  console.log('⚙️ Creating user settings...');
   await prisma.userSettings.createMany({
     data: users.map(user => ({
       userId: user.id,
@@ -1267,11 +1230,7 @@ async function main() {
       jobAlerts: true
     }))
   });
-
-  console.log('✅ User settings created');
-
   // Create some notifications
-  console.log('🔔 Creating notifications...');
   await prisma.notification.createMany({
     data: [
       {
@@ -1294,34 +1253,6 @@ async function main() {
       }
     ]
   });
-
-  console.log('✅ Notifications created');
-
-  console.log('🎉 Database seeding completed successfully!');
-  console.log(`📊 Created:`);
-  console.log(`   - ${users.length} users`);
-  console.log(`   - ${vacancyTypes.length} vacancy types`);
-  console.log(`   - ${fields.length} fields`);
-  console.log(`   - ${skills.length} skills`);
-  console.log(`   - ${workFormats.length} work formats`);
-  console.log(`   - ${workingStyles.length} working styles`);
-  console.log(`   - ${offers.length} offers`);
-  console.log(`   - ${participantReceives.length} participant receives`);
-  console.log(`   - ${vacancies.length} vacancies`);
-  console.log(`   - 10+ vacancy photos`);
-  console.log(`   - 50+ connections`);
-  console.log(`   - 4 work experiences`);
-  console.log(`   - 3 notifications`);
-  console.log('');
-  console.log('🔑 Login credentials for all users:');
-  console.log('   Email: any user email from the list above');
-  console.log('   Password: password123');
-  console.log('');
-  console.log('🌟 Test the "My Connections" feature:');
-  console.log('   1. Login as alex@example.com');
-  console.log('   2. Go to /connections');
-  console.log('   3. Click on "Мои связи" tab');
-  console.log('   4. See friends of friends and send friend requests!');
 }
 
 main()

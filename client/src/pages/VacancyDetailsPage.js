@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import Layout from '../components/layout/Layout';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -25,9 +26,51 @@ import {
 const VacancyDetailsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [vacancy, setVacancy] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [appliedVacancies, setAppliedVacancies] = useState(new Set());
+
+  // Загрузка откликов из localStorage и проверка существующих откликов
+  useEffect(() => {
+    const loadAppliedVacancies = async () => {
+      // Загружаем из localStorage
+      const savedAppliedVacancies = localStorage.getItem('appliedVacancies');
+      if (savedAppliedVacancies) {
+        try {
+          const appliedIds = JSON.parse(savedAppliedVacancies);
+          setAppliedVacancies(new Set(appliedIds));
+        } catch (error) {
+          // Error parsing applied vacancies
+        }
+      }
+
+      // Проверяем существующие отклики через API
+      try {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+          const response = await fetch('http://localhost:5000/api/applications/my', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            const appliedIds = data.applications.map(app => app.vacancyId);
+            setAppliedVacancies(new Set(appliedIds));
+            localStorage.setItem('appliedVacancies', JSON.stringify(appliedIds));
+
+          }
+        }
+      } catch (error) {
+        // Error loading applied vacancies from API
+      }
+    };
+
+    loadAppliedVacancies();
+  }, []);
 
   const fetchVacancy = useCallback(async () => {
     try {
@@ -51,6 +94,68 @@ const VacancyDetailsPage = () => {
       setLoading(false);
     }
   }, [id]);
+
+  // Функция для отклика на вакансию
+  const handleApplyToVacancy = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        return;
+      }
+
+      const response = await fetch('http://localhost:5000/api/applications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          vacancyId: parseInt(id),
+          status: 'pending'
+        })
+      });
+
+      if (response.ok) {
+        // Добавляем вакансию в список откликов
+        const newAppliedVacancies = new Set(appliedVacancies);
+        newAppliedVacancies.add(parseInt(id));
+        setAppliedVacancies(newAppliedVacancies);
+        
+        // Сохраняем в localStorage
+        localStorage.setItem('appliedVacancies', JSON.stringify([...newAppliedVacancies]));
+        
+        // Логируем действие
+        await fetch('http://localhost:5000/api/logs/user', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            actionType: 'apply_to_vacancy',
+            actionData: { vacancyId: parseInt(id) }
+          })
+        });
+
+        // Показываем уведомление пользователю
+        alert('Заявка отправлена! Вакансия добавлена в раздел "Мои отклики".');
+      } else if (response.status === 409) {
+        // Пользователь уже откликнулся - обновляем состояние
+
+        const newAppliedVacancies = new Set(appliedVacancies);
+        newAppliedVacancies.add(parseInt(id));
+        setAppliedVacancies(newAppliedVacancies);
+        localStorage.setItem('appliedVacancies', JSON.stringify([...newAppliedVacancies]));
+      }
+    } catch (error) {
+      // Error applying to vacancy
+    }
+  };
+
+  // Функция для показа откликов (для владельца вакансии)
+  const handleShowResponses = () => {
+    navigate(`/vacancies/${id}/responses`);
+  };
 
   useEffect(() => {
     fetchVacancy();
@@ -161,8 +266,29 @@ const VacancyDetailsPage = () => {
               </div>
 
               <div className="flex space-x-4">
-                <Button variant="primary" className="flex-1" icon={PaperAirplaneIcon}>
-                  Откликнуться
+                <Button 
+                  variant="primary" 
+                  className={`flex-1 ${
+                    appliedVacancies.has(parseInt(id)) 
+                      ? 'bg-green-600 hover:bg-green-700' 
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                  icon={appliedVacancies.has(parseInt(id)) ? CheckIcon : PaperAirplaneIcon}
+                  onClick={
+                    user && vacancy && user.id === vacancy.userId 
+                      ? handleShowResponses 
+                      : appliedVacancies.has(parseInt(id)) 
+                        ? undefined 
+                        : handleApplyToVacancy
+                  }
+                  disabled={false}
+                >
+                  {user && vacancy && user.id === vacancy.userId 
+                    ? 'Показать отклики' 
+                    : appliedVacancies.has(parseInt(id)) 
+                      ? 'Заявка отправлена!' 
+                      : 'Откликнуться'
+                  }
                 </Button>
                 <Button variant="outline" icon={BookmarkIcon}>
                   Сохранить
@@ -172,7 +298,6 @@ const VacancyDetailsPage = () => {
                 </Button>
               </div>
             </Card>
-
 
             {/* Фотографии вакансии */}
             {vacancy.photos && vacancy.photos.length > 0 && (

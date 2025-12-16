@@ -253,6 +253,94 @@ router.get('/received', authenticateToken, async (req, res) => {
   }
 });
 
+// Get applications for specific vacancy (for vacancy owner)
+router.get('/vacancy/:vacancyId', authenticateToken, async (req, res) => {
+  try {
+    const vacancyId = parseInt(req.params.vacancyId);
+    const { status, page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    if (isNaN(vacancyId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid vacancy ID'
+      });
+    }
+
+    // Check if vacancy exists and user owns it
+    const vacancy = await prisma.vacancy.findUnique({
+      where: { id: vacancyId },
+      select: { id: true, userId: true, title: true, company: true }
+    });
+
+    if (!vacancy) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vacancy not found'
+      });
+    }
+
+    if (vacancy.userId !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'You can only view applications for your own vacancies'
+      });
+    }
+
+    const where = { vacancyId };
+    if (status) {
+      where.status = status;
+    }
+
+    const [applications, total] = await Promise.all([
+      prisma.application.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              position: true,
+              company: true,
+              avatarUrl: true,
+              phone: true
+            }
+          }
+        },
+        skip,
+        take: parseInt(limit),
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.application.count({ where })
+    ]);
+
+    res.json({
+      success: true,
+      applications,
+      vacancy: {
+        id: vacancy.id,
+        title: vacancy.title,
+        company: vacancy.company
+      },
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get vacancy applications error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Unable to fetch vacancy applications'
+    });
+  }
+});
+
 // Update application status (for vacancy owners)
 router.put('/:id/status', authenticateToken, [
   body('status').isIn(['pending', 'reviewed', 'accepted', 'rejected']).withMessage('Invalid status')

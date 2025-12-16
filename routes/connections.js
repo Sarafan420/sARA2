@@ -5,27 +5,209 @@ const { authenticateToken } = require('../middleware/auth');
 const prisma = new PrismaClient();
 const router = express.Router();
 
-// Send connection request (alias for /send)
+// Вспомогательная функция для автоматического добавления connections при создании/принятии дружбы
+async function updateConnectionsForNewFriendship(userId1, userId2) {
+  try {
+    // Находим всех друзей пользователя userId1 (кроме userId2)
+    const user1Friends = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { userId: userId1, status: 'accepted' },
+          { friendId: userId1, status: 'accepted' }
+        ],
+        NOT: {
+          OR: [
+            { userId: userId2 },
+            { friendId: userId2 }
+          ]
+        }
+      }
+    });
+
+    // Находим всех друзей пользователя userId2 (кроме userId1)
+    const user2Friends = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { userId: userId2, status: 'accepted' },
+          { friendId: userId2, status: 'accepted' }
+        ],
+        NOT: {
+          OR: [
+            { userId: userId1 },
+            { friendId: userId1 }
+          ]
+        }
+      }
+    });
+
+    // Получаем ID друзей userId1
+    const user1FriendIds = new Set();
+    user1Friends.forEach(f => {
+      const friendId = f.userId === userId1 ? f.friendId : f.userId;
+      user1FriendIds.add(friendId);
+    });
+
+    // Получаем ID друзей userId2
+    const user2FriendIds = new Set();
+    user2Friends.forEach(f => {
+      const friendId = f.userId === userId2 ? f.friendId : f.userId;
+      user2FriendIds.add(friendId);
+    });
+
+    // Добавляем друзей userId2 в connections для userId1 (через userId2 как mutual friend)
+    for (const friendId2 of user2FriendIds) {
+      // Проверяем, что это не прямой друг userId1
+      if (!user1FriendIds.has(friendId2) && friendId2 !== userId1) {
+        // Проверяем, что connection еще не существует
+        const existingConnection = await prisma.connection.findFirst({
+          where: {
+            userId: userId1,
+            connectedUserId: friendId2,
+            mutualFriendId: userId2
+          }
+        });
+
+        if (!existingConnection) {
+          await prisma.connection.create({
+            data: {
+              userId: userId1,
+              connectedUserId: friendId2,
+              mutualFriendId: userId2
+            }
+          });
+        }
+      }
+    }
+
+    // Добавляем друзей userId1 в connections для userId2 (через userId1 как mutual friend)
+    for (const friendId1 of user1FriendIds) {
+      // Проверяем, что это не прямой друг userId2
+      if (!user2FriendIds.has(friendId1) && friendId1 !== userId2) {
+        // Проверяем, что connection еще не существует
+        const existingConnection = await prisma.connection.findFirst({
+          where: {
+            userId: userId2,
+            connectedUserId: friendId1,
+            mutualFriendId: userId1
+          }
+        });
+
+        if (!existingConnection) {
+          await prisma.connection.create({
+            data: {
+              userId: userId2,
+              connectedUserId: friendId1,
+              mutualFriendId: userId1
+            }
+          });
+        }
+      }
+    }
+
+    // Обновляем connections для всех друзей userId1 и userId2
+    // Если у друга userId1 есть дружба с userId2, то друзья userId2 должны быть в connections друга userId1
+    for (const friendId1 of user1FriendIds) {
+      // Проверяем, есть ли у друга userId1 дружба с userId2
+      const friendshipWithUser2 = await prisma.friendship.findFirst({
+        where: {
+          OR: [
+            { userId: friendId1, friendId: userId2, status: 'accepted' },
+            { userId: userId2, friendId: friendId1, status: 'accepted' }
+          ]
+        }
+      });
+
+      if (friendshipWithUser2) {
+        // Добавляем друзей userId2 в connections для друга userId1 (через userId2)
+        for (const friendId2 of user2FriendIds) {
+          if (friendId2 !== friendId1 && friendId2 !== userId1) {
+            const existingConnection = await prisma.connection.findFirst({
+              where: {
+                userId: friendId1,
+                connectedUserId: friendId2,
+                mutualFriendId: userId2
+              }
+            });
+
+            if (!existingConnection) {
+              await prisma.connection.create({
+                data: {
+                  userId: friendId1,
+                  connectedUserId: friendId2,
+                  mutualFriendId: userId2
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Аналогично для друзей userId2
+    for (const friendId2 of user2FriendIds) {
+      // Проверяем, есть ли у друга userId2 дружба с userId1
+      const friendshipWithUser1 = await prisma.friendship.findFirst({
+        where: {
+          OR: [
+            { userId: friendId2, friendId: userId1, status: 'accepted' },
+            { userId: userId1, friendId: friendId2, status: 'accepted' }
+          ]
+        }
+      });
+
+      if (friendshipWithUser1) {
+        // Добавляем друзей userId1 в connections для друга userId2 (через userId1)
+        for (const friendId1 of user1FriendIds) {
+          if (friendId1 !== friendId2 && friendId1 !== userId2) {
+            const existingConnection = await prisma.connection.findFirst({
+              where: {
+                userId: friendId2,
+                connectedUserId: friendId1,
+                mutualFriendId: userId1
+              }
+            });
+
+            if (!existingConnection) {
+              await prisma.connection.create({
+                data: {
+                  userId: friendId2,
+                  connectedUserId: friendId1,
+                  mutualFriendId: userId1
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error updating connections for new friendship:', error);
+    // Не прерываем выполнение, если произошла ошибка при обновлении connections
+  }
+}
+
+// Send friendship request (alias for /send)
 router.post('/request', authenticateToken, async (req, res) => {
   // Forward to the main send endpoint
   req.url = '/send';
   return router.handle(req, res);
 });
 
-// Send connection request
+// Send friendship request
 router.post('/send', authenticateToken, async (req, res) => {
   try {
-    const { connectedUserId } = req.body;
-    const connectionType = 'friend';
+    // Поддерживаем оба варианта: connectedUserId и userId (для обратной совместимости)
+    const { connectedUserId, userId } = req.body;
+    const targetUserIdParam = connectedUserId || userId;
     
-    if (!connectedUserId) {
+    if (!targetUserIdParam) {
       return res.status(400).json({
         success: false,
-        error: 'Connected user ID is required'
+        error: 'User ID is required (use connectedUserId or userId)'
       });
     }
 
-    const targetUserId = parseInt(connectedUserId);
+    const targetUserId = parseInt(targetUserIdParam);
     
     if (isNaN(targetUserId)) {
       return res.status(400).json({
@@ -41,34 +223,33 @@ router.post('/send', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check if connection already exists
-    const existingConnection = await prisma.connection.findFirst({
+    // Check if friendship already exists
+    const existingFriendship = await prisma.friendship.findFirst({
       where: {
         OR: [
-          { userId: req.user.id, connectedUserId: targetUserId },
-          { userId: targetUserId, connectedUserId: req.user.id }
+          { userId: req.user.id, friendId: targetUserId },
+          { userId: targetUserId, friendId: req.user.id }
         ]
       }
     });
 
-    if (existingConnection) {
+    if (existingFriendship) {
       return res.status(409).json({
         success: false,
-        error: 'Connection already exists',
-        message: 'You already have a connection with this user'
+        error: 'Friendship already exists',
+        message: 'You already have a friendship request with this user'
       });
     }
 
-    // Create connection request
-    const connection = await prisma.connection.create({
+    // Create friendship request
+    const friendship = await prisma.friendship.create({
       data: {
         userId: req.user.id,
-        connectedUserId: targetUserId,
-        connectionType,
+        friendId: targetUserId,
         status: 'pending'
       },
       include: {
-        connectedUser: {
+        friend: {
           select: {
             id: true,
             name: true,
@@ -92,34 +273,34 @@ router.post('/send', authenticateToken, async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Connection request sent successfully',
-      connection
+      message: 'Friendship request sent successfully',
+      connection: friendship
     });
 
   } catch (error) {
-    console.error('Send connection error:', error);
+    console.error('Send friendship error:', error);
     res.status(500).json({
       success: false,
-      error: 'Unable to send connection request'
+      error: 'Unable to send friendship request'
     });
   }
 });
 
-// Accept connection request
+// Accept friendship request
 router.post('/accept/:id', authenticateToken, async (req, res) => {
   try {
-    const connectionId = parseInt(req.params.id);
+    const friendshipId = parseInt(req.params.id);
     
-    if (isNaN(connectionId)) {
+    if (isNaN(friendshipId)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid connection ID'
+        error: 'Invalid friendship ID'
       });
     }
 
-    // Find the connection
-    const connection = await prisma.connection.findUnique({
-      where: { id: connectionId },
+    // Find the friendship
+    const friendship = await prisma.friendship.findUnique({
+      where: { id: friendshipId },
       include: {
         user: {
           select: {
@@ -133,32 +314,32 @@ router.post('/accept/:id', authenticateToken, async (req, res) => {
       }
     });
 
-    if (!connection) {
+    if (!friendship) {
       return res.status(404).json({
         success: false,
-        error: 'Connection request not found'
+        error: 'Friendship request not found'
       });
     }
 
-    if (connection.connectedUserId !== req.user.id) {
+    if (friendship.friendId !== req.user.id) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'You can only accept connection requests sent to you'
+        message: 'You can only accept friendship requests sent to you'
       });
     }
 
-    if (connection.status !== 'pending') {
+    if (friendship.status !== 'pending') {
       return res.status(400).json({
         success: false,
         error: 'Invalid request',
-        message: 'This connection request has already been processed'
+        message: 'This friendship request has already been processed'
       });
     }
 
-    // Accept the connection
-    const updatedConnection = await prisma.connection.update({
-      where: { id: connectionId },
+    // Accept the friendship
+    const updatedFriendship = await prisma.friendship.update({
+      where: { id: friendshipId },
       data: { status: 'accepted' },
       include: {
         user: {
@@ -173,10 +354,13 @@ router.post('/accept/:id', authenticateToken, async (req, res) => {
       }
     });
 
+    // Автоматически обновляем connections для обоих пользователей
+    await updateConnectionsForNewFriendship(friendship.userId, friendship.friendId);
+
     // Create notification for the sender
     await prisma.notification.create({
       data: {
-        userId: connection.userId,
+        userId: friendship.userId,
         title: 'Приглашение принято',
         message: `${req.user.name} принял ваше приглашение в друзья`,
         type: 'success'
@@ -185,89 +369,91 @@ router.post('/accept/:id', authenticateToken, async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Connection request accepted',
-      connection: updatedConnection
+      message: 'Friendship request accepted',
+      connection: updatedFriendship
     });
 
   } catch (error) {
-    console.error('Accept connection error:', error);
+    console.error('Accept friendship error:', error);
     res.status(500).json({
       success: false,
-      error: 'Unable to accept connection request'
+      error: 'Unable to accept friendship request'
     });
   }
 });
 
-// Reject connection request
+// Reject friendship request
 router.post('/reject/:id', authenticateToken, async (req, res) => {
   try {
-    const connectionId = parseInt(req.params.id);
+    const friendshipId = parseInt(req.params.id);
     
-    if (isNaN(connectionId)) {
+    if (isNaN(friendshipId)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid connection ID'
+        error: 'Invalid friendship ID'
       });
     }
 
-    // Find the connection
-    const connection = await prisma.connection.findUnique({
-      where: { id: connectionId }
+    // Find the friendship
+    const friendship = await prisma.friendship.findUnique({
+      where: { id: friendshipId }
     });
 
-    if (!connection) {
+    if (!friendship) {
       return res.status(404).json({
         success: false,
-        error: 'Connection request not found'
+        error: 'Friendship request not found'
       });
     }
 
-    if (connection.connectedUserId !== req.user.id) {
+    if (friendship.friendId !== req.user.id) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'You can only reject connection requests sent to you'
+        message: 'You can only reject friendship requests sent to you'
       });
     }
 
-    if (connection.status !== 'pending') {
+    if (friendship.status !== 'pending') {
       return res.status(400).json({
         success: false,
         error: 'Invalid request',
-        message: 'This connection request has already been processed'
+        message: 'This friendship request has already been processed'
       });
     }
 
-    // Reject the connection
-    await prisma.connection.update({
-      where: { id: connectionId },
+    // Reject the friendship
+    await prisma.friendship.update({
+      where: { id: friendshipId },
       data: { status: 'rejected' }
     });
 
     res.json({
       success: true,
-      message: 'Connection request rejected'
+      message: 'Friendship request rejected'
     });
 
   } catch (error) {
-    console.error('Reject connection error:', error);
+    console.error('Reject friendship error:', error);
     res.status(500).json({
       success: false,
-      error: 'Unable to reject connection request'
+      error: 'Unable to reject friendship request'
     });
   }
 });
 
-// Get user's connections
+// Get user's friendships
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const { status = 'accepted' } = req.query;
 
-    const connections = await prisma.connection.findMany({
+    console.log('Fetching friendships for user:', req.user.id, 'status:', status);
+
+    const friendships = await prisma.friendship.findMany({
       where: {
         OR: [
           { userId: req.user.id },
-          { connectedUserId: req.user.id }
+          { friendId: req.user.id }
         ],
         status: status
       },
@@ -281,7 +467,7 @@ router.get('/', authenticateToken, async (req, res) => {
             avatarUrl: true
           }
         },
-        connectedUser: {
+        friend: {
           select: {
             id: true,
             name: true,
@@ -294,11 +480,11 @@ router.get('/', authenticateToken, async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    // Transform connections to show the connected user
-    const transformedConnections = connections.map(conn => {
-      const friend = conn.userId === req.user.id ? conn.connectedUser : conn.user;
+    // Transform friendships to show the friend
+    const transformedFriendships = friendships.map(f => {
+      const friend = f.userId === req.user.id ? f.friend : f.user;
       return {
-        id: conn.id,
+        id: f.id,
         friend: {
           id: friend.id,
           name: friend.name,
@@ -306,16 +492,76 @@ router.get('/', authenticateToken, async (req, res) => {
           company: friend.company,
           avatarUrl: friend.avatarUrl
         },
-        connectionType: conn.connectionType,
-        status: conn.status,
-        createdAt: conn.createdAt,
-        isIncoming: conn.connectedUserId === req.user.id
+        status: f.status,
+        createdAt: f.createdAt,
+        isIncoming: f.friendId === req.user.id
       };
+    });
+
+    // Удаляем дубликаты на основе ID друга
+    const uniqueFriendshipsMap = new Map();
+    transformedFriendships.forEach(f => {
+      const friendId = f.friend.id;
+      if (!uniqueFriendshipsMap.has(friendId) || 
+          new Date(f.createdAt) > new Date(uniqueFriendshipsMap.get(friendId).createdAt)) {
+        uniqueFriendshipsMap.set(friendId, f);
+      }
+    });
+
+    const uniqueFriendships = Array.from(uniqueFriendshipsMap.values());
+
+    console.log('Found friendships:', uniqueFriendships.length);
+
+    res.json({
+      success: true,
+      connections: uniqueFriendships
+    });
+
+  } catch (error) {
+    console.error('Get friendships error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Unable to fetch friendships'
+    });
+  }
+});
+
+// Get user's connections (second-level connections)
+router.get('/connections', authenticateToken, async (req, res) => {
+  try {
+    const connections = await prisma.connection.findMany({
+      where: {
+        userId: req.user.id
+      },
+      include: {
+        connectedUser: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            company: true,
+            avatarUrl: true
+          }
+        },
+        mutualFriend: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
     });
 
     res.json({
       success: true,
-      connections: transformedConnections
+      connections: connections.map(c => ({
+        id: c.id,
+        user: c.connectedUser,
+        mutualFriend: c.mutualFriend,
+        createdAt: c.createdAt
+      }))
     });
 
   } catch (error) {
@@ -327,58 +573,71 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Remove connection
+// Remove friendship
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const connectionId = parseInt(req.params.id);
+    const friendshipId = parseInt(req.params.id);
     
-    if (isNaN(connectionId)) {
+    if (isNaN(friendshipId)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid connection ID'
+        error: 'Invalid friendship ID'
       });
     }
 
-    // Find the connection
-    const connection = await prisma.connection.findUnique({
-      where: { id: connectionId }
+    // Find the friendship
+    const friendship = await prisma.friendship.findUnique({
+      where: { id: friendshipId }
     });
 
-    if (!connection) {
+    if (!friendship) {
       return res.status(404).json({
         success: false,
-        error: 'Connection not found'
+        error: 'Friendship not found'
       });
     }
 
-    if (connection.userId !== req.user.id && connection.connectedUserId !== req.user.id) {
+    if (friendship.userId !== req.user.id && friendship.friendId !== req.user.id) {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'You can only remove your own connections'
+        message: 'You can only remove your own friendships'
       });
     }
 
-    // Delete the connection
-    await prisma.connection.delete({
-      where: { id: connectionId }
+    // Delete the friendship
+    await prisma.friendship.delete({
+      where: { id: friendshipId }
+    });
+
+    // Удаляем связанные connections, где эта дружба была mutual friend
+    const userId1 = friendship.userId;
+    const userId2 = friendship.friendId;
+    
+    await prisma.connection.deleteMany({
+      where: {
+        OR: [
+          { userId: userId1, mutualFriendId: userId2 },
+          { userId: userId2, mutualFriendId: userId1 }
+        ]
+      }
     });
 
     res.json({
       success: true,
-      message: 'Connection removed successfully'
+      message: 'Friendship removed successfully'
     });
 
   } catch (error) {
-    console.error('Remove connection error:', error);
+    console.error('Remove friendship error:', error);
     res.status(500).json({
       success: false,
-      error: 'Unable to remove connection'
+      error: 'Unable to remove friendship'
     });
   }
 });
 
-// Bulk create connections (for demo purposes)
+// Bulk create friendships (for demo purposes)
 router.post('/bulk-create', async (req, res) => {
   try {
     const { connections } = req.body;
@@ -390,59 +649,62 @@ router.post('/bulk-create', async (req, res) => {
       });
     }
 
-    const createdConnections = [];
+    const createdFriendships = [];
     
     for (const conn of connections) {
       const { userId, connectedUserId, status = 'accepted' } = conn;
-      const connectionType = 'friend';
       
       if (!userId || !connectedUserId) {
         continue;
       }
 
-      // Check if connection already exists
-      const existingConnection = await prisma.connection.findFirst({
+      // Check if friendship already exists
+      const existingFriendship = await prisma.friendship.findFirst({
         where: {
           OR: [
-            { userId: parseInt(userId), connectedUserId: parseInt(connectedUserId) },
-            { userId: parseInt(connectedUserId), connectedUserId: parseInt(userId) }
+            { userId: parseInt(userId), friendId: parseInt(connectedUserId) },
+            { userId: parseInt(connectedUserId), friendId: parseInt(userId) }
           ]
         }
       });
 
-      if (!existingConnection) {
+      if (!existingFriendship) {
         try {
-          const connection = await prisma.connection.create({
+          const friendship = await prisma.friendship.create({
             data: {
               userId: parseInt(userId),
-              connectedUserId: parseInt(connectedUserId),
-              connectionType,
+              friendId: parseInt(connectedUserId),
               status
             }
           });
-          createdConnections.push(connection);
+          createdFriendships.push(friendship);
+
+          // Если дружба принята, обновляем connections
+          if (status === 'accepted') {
+            await updateConnectionsForNewFriendship(parseInt(userId), parseInt(connectedUserId));
+          }
         } catch (error) {
-          console.error(`Error creating connection ${userId} -> ${connectedUserId}:`, error.message);
+          console.error(`Error creating friendship ${userId} -> ${connectedUserId}:`, error.message);
         }
       }
     }
 
     res.json({
       success: true,
-      message: `Created ${createdConnections.length} connections`,
-      connections: createdConnections
+      message: `Created ${createdFriendships.length} friendships`,
+      connections: createdFriendships
     });
 
   } catch (error) {
-    console.error('Bulk create connections error:', error);
+    console.error('Bulk create friendships error:', error);
     res.status(500).json({
       success: false,
-      error: 'Unable to create connections'
+      error: 'Unable to create friendships'
     });
   }
 });
 
-// Get connection statistics for a user
+// Get friendship statistics for a user
 router.get('/stats/:userId', authenticateToken, async (req, res) => {
   try {
     const targetUserId = parseInt(req.params.userId);
@@ -455,90 +717,54 @@ router.get('/stats/:userId', authenticateToken, async (req, res) => {
     }
 
     // Get user's direct friends
-    const directConnections = await prisma.connection.findMany({
+    const directFriendships = await prisma.friendship.findMany({
       where: {
         OR: [
           { userId: targetUserId, status: 'accepted' },
-          { connectedUserId: targetUserId, status: 'accepted' }
+          { friendId: targetUserId, status: 'accepted' }
         ]
       },
       include: {
         user: {
           select: { id: true }
         },
-        connectedUser: {
+        friend: {
           select: { id: true }
         }
       }
     });
 
-    console.log(`Direct connections for user ${targetUserId}:`, directConnections.length);
+    // Get friend IDs (excluding the target user) with deduplication
+    const friendIdsSet = new Set();
+    directFriendships.forEach(f => {
+      const friendId = f.userId === targetUserId ? f.friend.id : f.user.id;
+      if (friendId !== targetUserId) {
+        friendIdsSet.add(friendId);
+      }
+    });
+    const friendIds = Array.from(friendIdsSet);
 
-    // Get friend IDs (excluding the target user)
-    const friendIds = directConnections.map(conn => 
-      conn.userId === targetUserId ? conn.connectedUser.id : conn.user.id
-    );
-
-    console.log(`Friend IDs:`, friendIds);
-
-    // Get all connections of friends (second-degree connections)
-    const secondDegreeConnections = await prisma.connection.findMany({
+    // Get connections count
+    const connectionsCount = await prisma.connection.count({
       where: {
-        OR: [
-          { userId: { in: friendIds }, status: 'accepted' },
-          { connectedUserId: { in: friendIds }, status: 'accepted' }
-        ]
-      },
-      include: {
-        user: {
-          select: { id: true }
-        },
-        connectedUser: {
-          select: { id: true }
-        }
+        userId: targetUserId
       }
     });
-
-    console.log(`Second degree connections:`, secondDegreeConnections.length);
-
-    // Collect all unique user IDs from second-degree connections
-    const allSecondDegreeUserIds = new Set();
-    secondDegreeConnections.forEach(conn => {
-      if (conn.user.id !== targetUserId) {
-        allSecondDegreeUserIds.add(conn.user.id);
-      }
-      if (conn.connectedUser.id !== targetUserId) {
-        allSecondDegreeUserIds.add(conn.connectedUser.id);
-      }
-    });
-
-    console.log(`Unique second degree user IDs before filtering:`, allSecondDegreeUserIds.size);
-
-    // Remove direct friends from second-degree connections to avoid double counting
-    friendIds.forEach(friendId => {
-      allSecondDegreeUserIds.delete(friendId);
-    });
-
-    console.log(`Unique second degree user IDs after filtering:`, allSecondDegreeUserIds.size);
-
-    const totalConnections = friendIds.length + allSecondDegreeUserIds.size;
-
-    console.log(`Final stats - Friends: ${friendIds.length}, Second degree: ${allSecondDegreeUserIds.size}, Total: ${totalConnections}`);
 
     res.json({
       success: true,
       stats: {
         friendsCount: friendIds.length,
-        totalConnections: totalConnections,
-        secondDegreeConnections: allSecondDegreeUserIds.size
+        connectionsCount: connectionsCount,
+        totalConnections: friendIds.length + connectionsCount
       }
     });
 
   } catch (error) {
-    console.error('Get friend stats error:', error);
+    console.error('Get friendship stats error:', error);
     res.status(500).json({
       success: false,
-      error: 'Unable to get friend statistics'
+      error: 'Unable to get friendship statistics'
     });
   }
 });
@@ -563,17 +789,17 @@ router.get('/path/:userId', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check if direct connection exists
-    const directConnection = await prisma.connection.findFirst({
+    // Check if direct friendship exists
+    const directFriendship = await prisma.friendship.findFirst({
       where: {
         OR: [
-          { userId: req.user.id, connectedUserId: targetUserId, status: 'accepted' },
-          { userId: targetUserId, connectedUserId: req.user.id, status: 'accepted' }
+          { userId: req.user.id, friendId: targetUserId, status: 'accepted' },
+          { userId: targetUserId, friendId: req.user.id, status: 'accepted' }
         ]
       }
     });
 
-    if (directConnection) {
+    if (directFriendship) {
       return res.json({
         success: true,
         isDirectConnection: true,
@@ -581,12 +807,39 @@ router.get('/path/:userId', authenticateToken, async (req, res) => {
       });
     }
 
-    // Find mutual connections (friends of both users)
-    const mutualConnections = await prisma.connection.findMany({
+    // Check if there's a connection (second-level)
+    const connection = await prisma.connection.findFirst({
+      where: {
+        userId: req.user.id,
+        connectedUserId: targetUserId
+      },
+      include: {
+        mutualFriend: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            position: true,
+            company: true
+          }
+        }
+      }
+    });
+
+    if (connection) {
+      return res.json({
+        success: true,
+        isDirectConnection: false,
+        mutualConnections: [connection.mutualFriend]
+      });
+    }
+
+    // Find mutual friends
+    const userFriendships = await prisma.friendship.findMany({
       where: {
         OR: [
           { userId: req.user.id, status: 'accepted' },
-          { connectedUserId: req.user.id, status: 'accepted' }
+          { friendId: req.user.id, status: 'accepted' }
         ]
       },
       include: {
@@ -599,7 +852,7 @@ router.get('/path/:userId', authenticateToken, async (req, res) => {
             company: true
           }
         },
-        connectedUser: {
+        friend: {
           select: {
             id: true,
             name: true,
@@ -611,24 +864,24 @@ router.get('/path/:userId', authenticateToken, async (req, res) => {
       }
     });
 
-    // Check which mutual connections are also connected to target user
+    // Check which mutual friends are also connected to target user
     const mutualFriends = [];
-    for (const connection of mutualConnections) {
-      const mutualUserId = connection.userId === req.user.id ? connection.connectedUserId : connection.userId;
+    for (const friendship of userFriendships) {
+      const mutualUserId = friendship.userId === req.user.id ? friendship.friendId : friendship.userId;
       
       if (mutualUserId === targetUserId) continue;
 
-      const mutualConnection = await prisma.connection.findFirst({
+      const mutualFriendship = await prisma.friendship.findFirst({
         where: {
           OR: [
-            { userId: mutualUserId, connectedUserId: targetUserId, status: 'accepted' },
-            { userId: targetUserId, connectedUserId: mutualUserId, status: 'accepted' }
+            { userId: mutualUserId, friendId: targetUserId, status: 'accepted' },
+            { userId: targetUserId, friendId: mutualUserId, status: 'accepted' }
           ]
         }
       });
 
-      if (mutualConnection) {
-        const mutualUser = connection.userId === req.user.id ? connection.connectedUser : connection.user;
+      if (mutualFriendship) {
+        const mutualUser = friendship.userId === req.user.id ? friendship.friend : friendship.user;
         mutualFriends.push({
           id: mutualUser.id,
           name: mutualUser.name,
@@ -667,26 +920,26 @@ router.get('/friends-of-friends/:userId', authenticateToken, async (req, res) =>
     }
 
     // Get direct friends of the current user
-    const directConnections = await prisma.connection.findMany({
+    const directFriendships = await prisma.friendship.findMany({
       where: {
         OR: [
           { userId: currentUserId, status: 'accepted' },
-          { connectedUserId: currentUserId, status: 'accepted' }
+          { friendId: currentUserId, status: 'accepted' }
         ]
       },
       include: {
         user: {
           select: { id: true }
         },
-        connectedUser: {
+        friend: {
           select: { id: true }
         }
       }
     });
 
     // Get friend IDs (excluding the current user)
-    const friendIds = directConnections.map(conn => 
-      conn.userId === currentUserId ? conn.connectedUser.id : conn.user.id
+    const friendIds = directFriendships.map(f => 
+      f.userId === currentUserId ? f.friend.id : f.user.id
     );
 
     if (friendIds.length === 0) {
@@ -696,24 +949,12 @@ router.get('/friends-of-friends/:userId', authenticateToken, async (req, res) =>
       });
     }
 
-    // Get all connections of friends (second-degree connections)
-    const secondDegreeConnections = await prisma.connection.findMany({
+    // Get connections (second-level connections)
+    const connections = await prisma.connection.findMany({
       where: {
-        OR: [
-          { userId: { in: friendIds }, status: 'accepted' },
-          { connectedUserId: { in: friendIds }, status: 'accepted' }
-        ]
+        userId: currentUserId
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            position: true,
-            company: true,
-            avatarUrl: true
-          }
-        },
         connectedUser: {
           select: {
             id: true,
@@ -722,54 +963,41 @@ router.get('/friends-of-friends/:userId', authenticateToken, async (req, res) =>
             company: true,
             avatarUrl: true
           }
+        },
+        mutualFriend: {
+          select: {
+            id: true,
+            name: true,
+            position: true
+          }
         }
       }
     });
 
-    // Group by friend of friend and find mutual connections
+    // Group by mutual friend
     const friendsOfFriendsMap = new Map();
 
-    for (const conn of secondDegreeConnections) {
-      let friendOfFriendId, friendOfFriend;
+    for (const conn of connections) {
+      const friendOfFriendId = conn.connectedUser.id;
       
-      if (friendIds.includes(conn.userId)) {
-        friendOfFriendId = conn.connectedUser.id;
-        friendOfFriend = conn.connectedUser;
-      } else if (friendIds.includes(conn.connectedUserId)) {
-        friendOfFriendId = conn.userId;
-        friendOfFriend = conn.user;
-      }
-
-      // Skip if it's the current user or a direct friend
-      if (friendOfFriendId === currentUserId || friendIds.includes(friendOfFriendId)) {
-        continue;
-      }
-
       if (!friendsOfFriendsMap.has(friendOfFriendId)) {
         friendsOfFriendsMap.set(friendOfFriendId, {
-          id: friendOfFriend.id,
-          name: friendOfFriend.name,
-          position: friendOfFriend.position,
-          company: friendOfFriend.company,
-          avatarUrl: friendOfFriend.avatarUrl,
+          id: conn.connectedUser.id,
+          name: conn.connectedUser.name,
+          position: conn.connectedUser.position,
+          company: conn.connectedUser.company,
+          avatarUrl: conn.connectedUser.avatarUrl,
           mutualConnections: []
         });
       }
 
-      // Find the mutual friend (the direct friend who connects us)
-      const mutualFriendId = friendIds.includes(conn.userId) ? conn.userId : conn.connectedUserId;
-      const mutualFriend = directConnections.find(dc => 
-        dc.userId === mutualFriendId || dc.connectedUserId === mutualFriendId
-      );
-
-      if (mutualFriend) {
-        const mutualFriendData = mutualFriend.userId === mutualFriendId ? 
-          await prisma.user.findUnique({ where: { id: mutualFriendId }, select: { id: true, name: true, position: true } }) :
-          await prisma.user.findUnique({ where: { id: mutualFriend.connectedUserId }, select: { id: true, name: true, position: true } });
-
-        if (mutualFriendData && !friendsOfFriendsMap.get(friendOfFriendId).mutualConnections.find(mc => mc.id === mutualFriendData.id)) {
-          friendsOfFriendsMap.get(friendOfFriendId).mutualConnections.push(mutualFriendData);
-        }
+      const existingEntry = friendsOfFriendsMap.get(friendOfFriendId);
+      if (!existingEntry.mutualConnections.find(mc => mc.id === conn.mutualFriend.id)) {
+        existingEntry.mutualConnections.push({
+          id: conn.mutualFriend.id,
+          name: conn.mutualFriend.name,
+          position: conn.mutualFriend.position
+        });
       }
     }
 
@@ -785,6 +1013,56 @@ router.get('/friends-of-friends/:userId', authenticateToken, async (req, res) =>
     res.status(500).json({
       success: false,
       error: 'Unable to get friends of friends'
+    });
+  }
+});
+
+// Get second-level connections
+router.get('/second-level', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Get connections (second-level connections)
+    const connections = await prisma.connection.findMany({
+      where: {
+        userId: userId
+      },
+      include: {
+        connectedUser: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            company: true,
+            avatarUrl: true
+          }
+        },
+        mutualFriend: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({
+      success: true,
+      secondLevelConnections: connections.map(c => ({
+        id: c.connectedUser.id,
+        name: c.connectedUser.name,
+        position: c.connectedUser.position,
+        company: c.connectedUser.company,
+        avatarUrl: c.connectedUser.avatarUrl,
+        mutualFriend: c.mutualFriend
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching second-level connections:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
     });
   }
 });

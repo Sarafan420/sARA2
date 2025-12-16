@@ -165,7 +165,6 @@ const NotificationsPage = () => {
 
   const handleConnectionAction = (notificationId, action) => {
     // Здесь была бы логика принятия/отклонения запроса на связь
-    console.log(`${action} connection request ${notificationId}`);
     markAsRead(notificationId);
   };
 

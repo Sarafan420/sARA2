@@ -27,7 +27,6 @@ const Header = () => {
     { name: 'Связи', href: '/connections', current: location.pathname.startsWith('/connections') }
   ];
 
-
   return (
     <>
       <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">

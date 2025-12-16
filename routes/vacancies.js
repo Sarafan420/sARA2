@@ -6,13 +6,12 @@ const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const prisma = new PrismaClient();
 const router = express.Router();
 
-
-// Get all vacancies (only from friends and friends of friends if authenticated)
+// Get all vacancies (show all vacancies to all users)
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const { 
-      page = 1, 
-      limit = 20, 
+      offset = 0,
+      limit = 20,
       search, 
       location, 
       company, 
@@ -21,69 +20,11 @@ router.get('/', optionalAuth, async (req, res) => {
       salaryMin,
       salaryMax
     } = req.query;
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
     
-    // Если пользователь авторизован, показываем только вакансии от друзей и друзей друзей
-    if (req.user) {
-      // Получаем ID друзей пользователя
-      const directConnections = await prisma.connection.findMany({
-        where: {
-          OR: [
-            { userId: req.user.id, status: 'accepted' },
-            { connectedUserId: req.user.id, status: 'accepted' }
-          ]
-        }
-      });
-
-      const friendIds = directConnections.map(conn => 
-        conn.userId === req.user.id ? conn.connectedUserId : conn.userId
-      );
-
-      // Получаем ID друзей друзей
-      const secondDegreeConnections = await prisma.connection.findMany({
-        where: {
-          OR: [
-            { userId: { in: friendIds }, status: 'accepted' },
-            { connectedUserId: { in: friendIds }, status: 'accepted' }
-          ]
-        }
-      });
-
-      const friendsOfFriendsIds = new Set();
-      secondDegreeConnections.forEach(conn => {
-        if (friendIds.includes(conn.userId)) {
-          friendsOfFriendsIds.add(conn.connectedUserId);
-        } else if (friendIds.includes(conn.connectedUserId)) {
-          friendsOfFriendsIds.add(conn.userId);
-        }
-      });
-
-      // Исключаем самого пользователя и его прямых друзей
-      friendIds.forEach(id => friendsOfFriendsIds.delete(id));
-      friendsOfFriendsIds.delete(req.user.id);
-
-      // Объединяем ID друзей и друзей друзей
-      const allowedUserIds = [...friendIds, ...Array.from(friendsOfFriendsIds)];
-      
-      if (allowedUserIds.length > 0) {
-        where.userId = { in: allowedUserIds };
-      } else {
-        // Если у пользователя нет друзей, возвращаем пустой результат
-        return res.json({
-          success: true,
-          vacancies: [],
-          pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total: 0,
-            pages: 0
-          }
-        });
-      }
-    }
+    // Показываем все вакансии для всех пользователей
+    // Фильтрация по типу рекрутера теперь происходит на фронтенде
     
     if (search) {
       where.OR = [
@@ -117,51 +58,101 @@ router.get('/', optionalAuth, async (req, res) => {
       where.salaryMin = { lte: parseInt(salaryMax) };
     }
 
-    const [vacancies, total] = await Promise.all([
-      prisma.vacancy.findMany({
-        where,
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              avatarUrl: true,
-              company: true
-            }
-          },
-          vacancyType: true,
-          workFormat: true,
-          workingStyle: true,
-          vacancyFields: {
-            include: {
-              field: true
-            }
-          },
-          vacancySkills: {
-            include: {
-              skill: true
-            }
-          },
-          vacancyOffers: {
-            include: {
-              offer: true
-            }
-          },
-          vacancyParticipants: {
-            include: {
-              participantReceive: true
-            }
-          },
-          photos: {
-            orderBy: { order: 'asc' }
+    // Получаем все вакансии для правильной сортировки по связям
+    const allVacancies = await prisma.vacancy.findMany({
+      where,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            company: true
           }
         },
-        skip,
-        take: parseInt(limit),
-        orderBy: { createdAt: 'desc' }
-      }),
-      prisma.vacancy.count({ where })
-    ]);
+        vacancyType: true,
+        workFormat: true,
+        workingStyle: true,
+        vacancyFields: {
+          include: {
+            field: true
+          }
+        },
+        vacancySkills: {
+          include: {
+            skill: true
+          }
+        },
+        vacancyOffers: {
+          include: {
+            offer: true
+          }
+        },
+        vacancyParticipants: {
+          include: {
+            participantReceive: true
+          }
+        },
+        photos: {
+          orderBy: { order: 'asc' }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Если пользователь авторизован, сортируем по приоритету связей
+    let sortedVacancies = allVacancies;
+    if (req.user) {
+      // Получаем ID друзей
+      const friendships = await prisma.friendship.findMany({
+        where: {
+          OR: [
+            { userId: req.user.id, status: 'accepted' },
+            { friendId: req.user.id, status: 'accepted' }
+          ]
+        }
+      });
+      const friendIds = new Set();
+      friendships.forEach(f => {
+        const friendId = f.userId === req.user.id ? f.friendId : f.userId;
+        friendIds.add(friendId);
+      });
+
+      // Получаем ID связей второго уровня
+      const connections = await prisma.connection.findMany({
+        where: {
+          userId: req.user.id
+        }
+      });
+      const connectionIds = new Set(connections.map(c => c.connectedUserId));
+
+      // Сортируем: сначала друзья, затем связи, затем остальные
+      sortedVacancies = allVacancies.sort((a, b) => {
+        const aIsFriend = friendIds.has(a.userId);
+        const bIsFriend = friendIds.has(b.userId);
+        const aIsConnection = connectionIds.has(a.userId) && !aIsFriend;
+        const bIsConnection = connectionIds.has(b.userId) && !bIsFriend;
+
+        // Приоритет 1: друзья
+        if (aIsFriend && !bIsFriend) return -1;
+        if (!aIsFriend && bIsFriend) return 1;
+        
+        // Приоритет 2: связи (если оба не друзья)
+        if (!aIsFriend && !bIsFriend) {
+          if (aIsConnection && !bIsConnection) return -1;
+          if (!aIsConnection && bIsConnection) return 1;
+        }
+
+        // Приоритет 3: по дате создания (новые сначала)
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      });
+    }
+
+    // Применяем пагинацию после сортировки
+    const totalCount = sortedVacancies.length;
+    const skip = parseInt(offset);
+    const take = parseInt(limit);
+    const vacancies = sortedVacancies.slice(skip, skip + take);
 
     const vacanciesWithParsedData = await Promise.all(vacancies.map(async vacancy => {
       // Построение connectionInfo для каждой вакансии
@@ -169,65 +160,107 @@ router.get('/', optionalAuth, async (req, res) => {
       
       if (req.user && vacancy.userId !== req.user.id) {
         // Проверяем, является ли рекрутер прямым другом
-        const directConnection = await prisma.connection.findFirst({
+        const directFriendship = await prisma.friendship.findFirst({
           where: {
             OR: [
-              { userId: req.user.id, connectedUserId: vacancy.userId },
-              { userId: vacancy.userId, connectedUserId: req.user.id }
+              { userId: req.user.id, friendId: vacancy.userId, status: 'accepted' },
+              { userId: vacancy.userId, friendId: req.user.id, status: 'accepted' }
             ]
           }
         });
 
-        if (directConnection) {
+        if (directFriendship) {
           connectionInfo = { isDirectConnection: true, mutualConnections: [] };
         } else {
-          // Ищем общих друзей
-          const mutualConnections = await prisma.connection.findMany({
+          // Проверяем, есть ли connection (связь второго уровня)
+          const connection = await prisma.connection.findFirst({
             where: {
-              OR: [
-                { userId: req.user.id },
-                { connectedUserId: req.user.id }
-              ]
+              userId: req.user.id,
+              connectedUserId: vacancy.userId
             },
             include: {
-              user: true,
-              connectedUser: true
+              mutualFriend: {
+                select: {
+                  id: true,
+                  name: true,
+                  position: true,
+                  company: true,
+                  avatarUrl: true
+                }
+              }
             }
           });
 
-          const mutualFriends = [];
-          const addedUserIds = new Set();
-
-          for (const connection of mutualConnections) {
-            const mutualUserId = connection.userId === req.user.id ? connection.connectedUserId : connection.userId;
-            if (mutualUserId === vacancy.userId) continue;
-            if (addedUserIds.has(mutualUserId)) continue;
-
-            // Проверяем, является ли этот пользователь другом рекрутера
-            const mutualConnection = await prisma.connection.findFirst({
+          if (connection) {
+            connectionInfo = { 
+              isDirectConnection: false, 
+              mutualConnections: [connection.mutualFriend] 
+            };
+          } else {
+            // Ищем общих друзей через friendships
+            const userFriendships = await prisma.friendship.findMany({
               where: {
                 OR: [
-                  { userId: mutualUserId, connectedUserId: vacancy.userId },
-                  { userId: vacancy.userId, connectedUserId: mutualUserId }
+                  { userId: req.user.id, status: 'accepted' },
+                  { friendId: req.user.id, status: 'accepted' }
                 ]
+              },
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    position: true,
+                    company: true,
+                    avatarUrl: true
+                  }
+                },
+                friend: {
+                  select: {
+                    id: true,
+                    name: true,
+                    position: true,
+                    company: true,
+                    avatarUrl: true
+                  }
+                }
               }
             });
 
-            if (mutualConnection) {
-              const mutualUser = connection.userId === req.user.id ? connection.connectedUser : connection.user;
-              mutualFriends.push({
-                id: mutualUser.id,
-                name: mutualUser.name,
-                position: mutualUser.position,
-                company: mutualUser.company,
-                avatarUrl: mutualUser.avatarUrl
-              });
-              addedUserIds.add(mutualUserId);
-            }
-          }
+            const mutualFriends = [];
+            const addedUserIds = new Set();
 
-          if (mutualFriends.length > 0) {
-            connectionInfo = { isDirectConnection: false, mutualConnections: mutualFriends.slice(0, 3) };
+            for (const friendship of userFriendships) {
+              const mutualUserId = friendship.userId === req.user.id ? friendship.friendId : friendship.userId;
+              if (mutualUserId === vacancy.userId) continue;
+              if (addedUserIds.has(mutualUserId)) continue;
+
+              // Проверяем, является ли этот пользователь другом рекрутера
+              const mutualFriendship = await prisma.friendship.findFirst({
+                where: {
+                  OR: [
+                    { userId: mutualUserId, friendId: vacancy.userId, status: 'accepted' },
+                    { userId: vacancy.userId, friendId: mutualUserId, status: 'accepted' }
+                  ]
+                }
+              });
+
+              if (mutualFriendship) {
+                const mutualUser = friendship.userId === req.user.id ? friendship.friend : friendship.user;
+                mutualFriends.push({
+                  id: mutualUser.id,
+                  name: mutualUser.name,
+                  position: mutualUser.position,
+                  company: mutualUser.company,
+                  avatarUrl: mutualUser.avatarUrl
+                });
+                addedUserIds.add(mutualUserId);
+              }
+            }
+
+            if (mutualFriends.length > 0) {
+              connectionInfo = { isDirectConnection: false, mutualConnections: mutualFriends.slice(0, 3) };
+            }
           }
         }
       }
@@ -242,20 +275,15 @@ router.get('/', optionalAuth, async (req, res) => {
         participantReceives: vacancy.vacancyParticipants?.map(vp => vp.participantReceive) || [],
         connectionInfo
       };
-      
-      
+
       return result;
     }));
 
     res.json({
       success: true,
       vacancies: vacanciesWithParsedData,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
+      total: totalCount,
+      hasMore: skip + take < totalCount
     });
 
   } catch (error) {
@@ -420,58 +448,93 @@ router.get('/:id', optionalAuth, async (req, res) => {
     // Построение connectionInfo: прямой друг или через общих друзей
     let connectionInfo = null;
     if (req.user && vacancy.userId !== req.user.id) {
-      // Получаем прямых друзей текущего пользователя
-      const directConnections = await prisma.connection.findMany({
+      // Проверяем, является ли рекрутер прямым другом
+      const directFriendship = await prisma.friendship.findFirst({
         where: {
           OR: [
-            { userId: req.user.id, status: 'accepted' },
-            { connectedUserId: req.user.id, status: 'accepted' }
+            { userId: req.user.id, friendId: vacancy.userId, status: 'accepted' },
+            { userId: vacancy.userId, friendId: req.user.id, status: 'accepted' }
           ]
         }
       });
 
-      const friendIds = directConnections.map(conn => 
-        conn.userId === req.user.id ? conn.connectedUserId : conn.userId
-      );
-
-      const isDirectConnection = friendIds.includes(vacancy.userId);
+      const isDirectConnection = !!directFriendship;
 
       let mutualConnections = [];
-      if (!isDirectConnection && friendIds.length > 0) {
-        // Находим друзей пользователя, у которых есть связь с рекрутером
-        const mutualEdges = await prisma.connection.findMany({
+      if (!isDirectConnection) {
+        // Проверяем, есть ли connection (связь второго уровня)
+        const connection = await prisma.connection.findFirst({
           where: {
-            status: 'accepted',
-            OR: [
-              { userId: { in: friendIds }, connectedUserId: vacancy.userId },
-              { connectedUserId: { in: friendIds }, userId: vacancy.userId }
-            ]
+            userId: req.user.id,
+            connectedUserId: vacancy.userId
+          },
+          include: {
+            mutualFriend: {
+              select: {
+                id: true,
+                name: true,
+                avatarUrl: true,
+                position: true,
+                company: true
+              }
+            }
           }
         });
 
-        const mutualFriendIdsSet = new Set();
-        mutualEdges.forEach(edge => {
-          if (friendIds.includes(edge.userId) && edge.connectedUserId === vacancy.userId) {
-            mutualFriendIdsSet.add(edge.userId);
-          }
-          if (friendIds.includes(edge.connectedUserId) && edge.userId === vacancy.userId) {
-            mutualFriendIdsSet.add(edge.connectedUserId);
-          }
-        });
-
-        const mutualFriendIds = Array.from(mutualFriendIdsSet);
-        if (mutualFriendIds.length > 0) {
-          const mutualUsers = await prisma.user.findMany({
-            where: { id: { in: mutualFriendIds } },
-            select: {
-              id: true,
-              name: true,
-              avatarUrl: true,
-              position: true,
-              company: true
+        if (connection) {
+          mutualConnections = [connection.mutualFriend];
+        } else {
+          // Ищем общих друзей через friendships
+          const userFriendships = await prisma.friendship.findMany({
+            where: {
+              OR: [
+                { userId: req.user.id, status: 'accepted' },
+                { friendId: req.user.id, status: 'accepted' }
+              ]
             }
           });
-          mutualConnections = mutualUsers;
+
+          const friendIds = userFriendships.map(f => 
+            f.userId === req.user.id ? f.friendId : f.userId
+          );
+
+          if (friendIds.length > 0) {
+            // Находим друзей пользователя, у которых есть дружба с рекрутером
+            const mutualFriendships = await prisma.friendship.findMany({
+              where: {
+                status: 'accepted',
+                OR: [
+                  { userId: { in: friendIds }, friendId: vacancy.userId },
+                  { friendId: { in: friendIds }, userId: vacancy.userId }
+                ]
+              }
+            });
+
+            const mutualFriendIdsSet = new Set();
+            mutualFriendships.forEach(f => {
+              if (friendIds.includes(f.userId) && f.friendId === vacancy.userId) {
+                mutualFriendIdsSet.add(f.userId);
+              }
+              if (friendIds.includes(f.friendId) && f.userId === vacancy.userId) {
+                mutualFriendIdsSet.add(f.friendId);
+              }
+            });
+
+            const mutualFriendIds = Array.from(mutualFriendIdsSet);
+            if (mutualFriendIds.length > 0) {
+              const mutualUsers = await prisma.user.findMany({
+                where: { id: { in: mutualFriendIds } },
+                select: {
+                  id: true,
+                  name: true,
+                  avatarUrl: true,
+                  position: true,
+                  company: true
+                }
+              });
+              mutualConnections = mutualUsers;
+            }
+          }
         }
       }
 

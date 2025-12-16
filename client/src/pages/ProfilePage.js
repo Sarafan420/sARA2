@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Layout from '../components/layout/Layout';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
+import Tag from '../components/ui/Tag';
 import Avatar from '../components/ui/Avatar';
 import WorkExperienceSection from '../components/WorkExperienceSection';
 import { 
@@ -34,40 +35,58 @@ const ProfilePage = () => {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [friendStats, setFriendStats] = useState({
     friendsCount: 0,
-    connectionsCount: 0
+    connectionsCount: 0,
+    secondLevelConnectionsCount: 0
   });
   
   // Определяем чей профиль показываем
   const isOwnProfile = !id;
 
-  // Функция загрузки статистики друзей
+  // Функция загрузки статистики друзей (как на странице /connections)
   const loadFriendStats = async (userId) => {
     try {
       const token = localStorage.getItem('authToken');
-      console.log('Loading friend stats for userId:', userId);
-      console.log('Token exists:', !!token);
-      
-      const response = await fetch(`http://localhost:5000/api/connections/stats/${userId}`, {
+
+      // Загружаем друзей (как в FriendsList)
+      const friendsResponse = await fetch(`http://localhost:5000/api/connections?status=accepted`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      const data = await response.json();
-      
-      console.log('API response:', data);
-      
-      if (data.success) {
-        setFriendStats({
-          friendsCount: data.stats.friendsCount,
-          connectionsCount: data.stats.totalConnections
-        });
-        console.log('Stats updated:', {
-          friendsCount: data.stats.friendsCount,
-          connectionsCount: data.stats.totalConnections
-        });
-      } else {
-        console.error('API error:', data.error);
+      const friendsData = await friendsResponse.json();
+
+      let friendsCount = 0;
+      if (friendsData.success) {
+        friendsCount = friendsData.connections.length;
       }
+
+      // Загружаем друзей друзей (как на вкладке "Мои связи")
+      const friendsOfFriendsResponse = await fetch(`http://localhost:5000/api/connections/friends-of-friends/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const friendsOfFriendsData = await friendsOfFriendsResponse.json();
+
+      let secondLevelCount = 0;
+      if (friendsOfFriendsResponse.ok && friendsOfFriendsData.friendsOfFriends) {
+        secondLevelCount = friendsOfFriendsData.friendsOfFriends.length;
+      }
+
+      const totalConnections = friendsCount + secondLevelCount;
+
+      console.log('Friend stats loaded (from /connections logic):', {
+        friendsCount,
+        secondLevelCount,
+        totalConnections
+      });
+
+      setFriendStats({
+        friendsCount: friendsCount,
+        connectionsCount: totalConnections,
+        secondLevelConnectionsCount: secondLevelCount
+      });
+
     } catch (error) {
       console.error('Ошибка загрузки статистики друзей:', error);
     }
@@ -105,8 +124,8 @@ const ProfilePage = () => {
               company: data.user.company,
               location: data.user.location,
               status: data.user.status,
-              skills: data.user.skills || [],
-              interests: data.user.interests || [],
+              skills: Array.isArray(data.user.skills) ? data.user.skills : [],
+              interests: Array.isArray(data.user.interests) ? data.user.interests : [],
               about: data.user.bio,
               views: 128, // Можно получать из БД
               friends: [], // Список друзей будет загружаться отдельно
@@ -225,9 +244,13 @@ const ProfilePage = () => {
             <div className="bg-white rounded-lg shadow p-6 mb-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Навыки</h2>
               <div className="flex flex-wrap gap-2">
-                {profileUser.skills?.map((skill, index) => (
-                  <Badge key={index} variant="outline">{skill}</Badge>
-                ))}
+                {profileUser.skills && Array.isArray(profileUser.skills) && profileUser.skills.length > 0 ? (
+                  profileUser.skills.map((skill, index) => (
+                    <Tag key={index} variant="primary" size="md">{skill}</Tag>
+                  ))
+                ) : (
+                  <p className="text-gray-500 text-sm">Навыки не указаны</p>
+                )}
               </div>
             </div>
 
@@ -239,7 +262,6 @@ const ProfilePage = () => {
                 <Badge variant="primary">Строительство</Badge>
               </div>
             </div>
-
 
             {/* Образование */}
             {profileUser.education && (
@@ -461,10 +483,10 @@ const ProfilePage = () => {
                     <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center mr-3">
                       <ChartBarIcon className="w-4 h-4 text-purple-600" />
                     </div>
-                    <span className="text-gray-600">Всего связей</span>
+                    <span className="text-gray-600">Связи</span>
                   </div>
                   <span className="text-2xl font-bold text-purple-600">
-                    {friendStats.connectionsCount}
+                    {friendStats.secondLevelConnectionsCount || 0}
                   </span>
                 </div>
               </div>
@@ -528,19 +550,24 @@ const ProfilePage = () => {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Настройки</h3>
                 <div className="space-y-3">
-                  <Button variant="outline" size="sm" className="w-full justify-start">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full justify-start"
+                    onClick={() => navigate('/settings')}
+                  >
                     <Cog6ToothIcon className="w-4 h-4 mr-2" />
-                    Приватность профиля
+                    Настройки
                   </Button>
-                  <Button variant="outline" size="sm" className="w-full justify-start">
-                    <DocumentTextIcon className="w-4 h-4 mr-2" />
-                    Уведомления
-                  </Button>
-                  <Button variant="outline" size="sm" className="w-full justify-start">
-                    <UserGroupIcon className="w-4 h-4 mr-2" />
-                    Аккаунт
-                  </Button>
-                  <Button variant="outline" size="sm" className="w-full justify-start">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full justify-start"
+                    onClick={() => {
+                      // Функция экспорта данных будет реализована в будущем
+                      alert('Функция экспорта данных будет добавлена позже');
+                    }}
+                  >
                     <DocumentTextIcon className="w-4 h-4 mr-2" />
                     Экспорт данных
                   </Button>
@@ -551,7 +578,7 @@ const ProfilePage = () => {
                     onClick={handleLogout}
                   >
                     <ArrowRightOnRectangleIcon className="w-4 h-4 mr-2" />
-                    Выход из аккаунта
+                    Выйти из профиля
                   </Button>
                 </div>
               </div>

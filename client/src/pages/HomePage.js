@@ -131,7 +131,6 @@ const HomePage = () => {
     return `${Math.floor(diffInHours / 168)} нед назад`;
   };
 
-
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {

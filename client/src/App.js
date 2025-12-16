@@ -21,6 +21,8 @@ import RegistrationPage from './pages/RegistrationPage';
 import LoginPage from './pages/LoginPage';
 import SettingsPage from './pages/SettingsPage';
 import ConnectionsPage from './pages/ConnectionsPage';
+import LogsMonitoringPage from './pages/LogsMonitoringPage';
+import VacancyResponsesPage from './pages/VacancyResponsesPage';
 
 // Contexts
 import { AuthProvider } from './contexts/AuthContext';
@@ -49,6 +51,11 @@ const App = () => {
                   
                   {/* Vacancy Routes */}
                   <Route path="/vacancies/:id" element={<VacancyDetailsPage />} />
+                  <Route path="/vacancies/:id/responses" element={
+                    <ProtectedRoute>
+                      <VacancyResponsesPage />
+                    </ProtectedRoute>
+                  } />
                   <Route path="/vacancies/create" element={
                     <ProtectedRoute>
                       <CreateVacancyPage />
@@ -114,6 +121,24 @@ const App = () => {
                       <SettingsPage />
                     </ProtectedRoute>
                   } />
+                  <Route path="/settings/privacy" element={
+                    <ProtectedRoute>
+                      <SettingsPage />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/settings/notifications" element={
+                    <ProtectedRoute>
+                      <SettingsPage />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/settings/profile" element={
+                    <ProtectedRoute>
+                      <SettingsPage />
+                    </ProtectedRoute>
+                  } />
+                  
+                  {/* Admin/Monitoring Routes */}
+                  <Route path="/admin/logs" element={<LogsMonitoringPage />} />
                   
                   {/* Create Route - Universal */}
                   <Route path="/create" element={

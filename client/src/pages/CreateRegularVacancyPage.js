@@ -87,7 +87,6 @@ const CreateRegularVacancyPage = () => {
     { value: 'head', label: 'Head/Director' }
   ];
 
-
   const currencies = [
     { value: 'RUB', label: '₽ Рубли' },
     { value: 'USD', label: '$ Доллары' },
